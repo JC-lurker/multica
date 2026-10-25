@@ -8747,10 +8747,21 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if provider == "opencode" || provider == "codearts" {
 		idleWatchdogTimeout = d.cfg.OpenCodeIdleWatchdog
 	}
+
+	var imageAttachments []string
+	if len(task.ChatMessageAttachments) > 0 {
+		attDir := filepath.Join(taskTempDir, "attachments")
+		if taskTempDir == "" {
+			attDir = filepath.Join(os.TempDir(), "multica-task-attachments-"+task.ID)
+		}
+		imageAttachments = d.downloadTaskImageAttachments(ctx, task, agentToken, attDir, taskLog)
+	}
+
 	execOpts := agent.ExecOptions{
 		EnableTaskSupplement:       taskSupplementNegotiated,
 		CursorHookCommand:          cursorHookCommand,
 		Cwd:                        env.WorkDir,
+		ImageAttachments:           imageAttachments,
 		Model:                      model,
 		ThreadName:                 deriveTaskThreadName(task),
 		Timeout:                    d.cfg.AgentTimeout,
