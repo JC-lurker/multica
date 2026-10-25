@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1139,7 +1140,86 @@ func buildPiArgs(sessionPath string, opts ExecOptions, logger *slog.Logger) []st
 	if opts.piMcpExtensionPath != "" {
 		args = append(args, "--extension", opts.piMcpExtensionPath)
 	}
+	for _, img := range detectPiImageAttachments(opts, logger) {
+		args = append(args, "@"+img)
+	}
 	return args
+}
+
+// detectPiImageAttachments filters opts.ImageAttachments to valid local image files
+// and returns their paths for @<path> positional arguments to Pi CLI.
+func detectPiImageAttachments(opts ExecOptions, logger *slog.Logger) []string {
+	if len(opts.ImageAttachments) == 0 {
+		return nil
+	}
+	var detected []string
+	seen := make(map[string]struct{}, len(opts.ImageAttachments))
+	for _, raw := range opts.ImageAttachments {
+		clean := strings.TrimSpace(raw)
+		if clean == "" {
+			continue
+		}
+		clean = strings.TrimPrefix(clean, "@")
+		resolved := clean
+		if !filepath.IsAbs(resolved) && opts.Cwd != "" {
+			resolved = filepath.Join(opts.Cwd, resolved)
+		}
+		if _, ok := seen[resolved]; ok {
+			continue
+		}
+		fi, err := os.Stat(resolved)
+		if err != nil {
+			if logger != nil {
+				logger.Warn("pi image attachment not found, skipping", "path", resolved, "error", err)
+			}
+			continue
+		}
+		if fi.IsDir() {
+			if logger != nil {
+				logger.Warn("pi image attachment is a directory, skipping", "path", resolved)
+			}
+			continue
+		}
+		if fi.Size() == 0 {
+			if logger != nil {
+				logger.Warn("pi image attachment is empty, skipping", "path", resolved)
+			}
+			continue
+		}
+		if !isImageFile(resolved) {
+			if logger != nil {
+				logger.Warn("pi attachment is not an image MIME type, skipping", "path", resolved)
+			}
+			continue
+		}
+		seen[resolved] = struct{}{}
+		detected = append(detected, resolved)
+	}
+	return detected
+}
+
+func isImageFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp":
+		return true
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 512)
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return false
+	}
+	ct := http.DetectContentType(buf[:n])
+	switch ct {
+	case "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp":
+		return true
+	}
+	return false
 }
 
 const (

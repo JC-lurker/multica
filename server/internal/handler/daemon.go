@@ -3231,6 +3231,21 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		if task.TriggerCommentID.Valid {
 			plannedCommentIDs = append(plannedCommentIDs, task.TriggerCommentID)
 		}
+		if len(plannedCommentIDs) > 0 {
+			commentAtts, attErr := h.Queries.ListAttachmentsByCommentIDs(r.Context(), db.ListAttachmentsByCommentIDsParams{
+				Column1:     plannedCommentIDs,
+				WorkspaceID: parseUUID(resp.WorkspaceID),
+			})
+			if attErr == nil {
+				for _, a := range commentAtts {
+					resp.ChatMessageAttachments = append(resp.ChatMessageAttachments, ChatAttachmentMeta{
+						ID:          uuidToString(a.ID),
+						Filename:    a.Filename,
+						ContentType: a.ContentType,
+					})
+				}
+			}
+		}
 		loadedComments := h.buildCoalescedCommentData(r.Context(), runtime.WorkspaceID, plannedCommentIDs)
 		triggerCommentID := uuidToString(task.TriggerCommentID)
 		var deliveredComments []CoalescedCommentData
