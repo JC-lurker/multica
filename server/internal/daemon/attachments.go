@@ -6,11 +6,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/cli"
 )
+
+var attachmentRegex = regexp.MustCompile(`(?:!\[([^\]]*)\]\([^)]*?/api/attachments/([0-9a-zA-Z_-]+)[^\)]*\)|/api/attachments/([0-9a-zA-Z_-]+))`)
 
 // isImageAttachment reports whether an attachment metadata represents an image.
 func isImageAttachment(filename, contentType string) bool {
@@ -39,17 +42,46 @@ func (d *Daemon) downloadTaskImageAttachments(
 	agentToken string,
 	targetDir string,
 	taskLog *slog.Logger,
+	promptText ...string,
 ) []string {
-	if len(task.ChatMessageAttachments) == 0 {
-		return nil
-	}
-
 	var toDownload []ChatAttachmentMeta
+	seenIDs := make(map[string]struct{})
+
 	for _, att := range task.ChatMessageAttachments {
 		if isImageAttachment(att.Filename, att.ContentType) {
 			toDownload = append(toDownload, att)
+			seenIDs[att.ID] = struct{}{}
 		}
 	}
+
+	// Fallback for unpatched servers (e.g. cloud api.multica.ai where
+	// ChatMessageAttachments is not populated on task claim for issue comments):
+	// scan promptText for markdown attachment links like:
+	// ![image.png](https://multica.ai/api/attachments/<UUID>/download) or /api/attachments/<UUID>
+	for _, text := range promptText {
+		for _, m := range attachmentRegex.FindAllStringSubmatch(text, -1) {
+			attID := m[2]
+			if attID == "" {
+				attID = m[3]
+			}
+			if attID == "" {
+				continue
+			}
+			if _, seen := seenIDs[attID]; seen {
+				continue
+			}
+			seenIDs[attID] = struct{}{}
+			fname := m[1]
+			if fname == "" {
+				fname = "attachment-" + attID
+			}
+			toDownload = append(toDownload, ChatAttachmentMeta{
+				ID:       attID,
+				Filename: fname,
+			})
+		}
+	}
+
 	if len(toDownload) == 0 {
 		return nil
 	}
@@ -88,11 +120,36 @@ func (d *Daemon) downloadTaskImageAttachments(
 
 		var meta map[string]any
 		var downloadURL string
+		var actualFilename string
+		var actualContentType string
 		if err := client.GetJSON(dlCtx, "/api/attachments/"+att.ID, &meta); err == nil {
 			if u, ok := meta["download_url"].(string); ok && u != "" {
 				downloadURL = u
 			}
+			if fn, ok := meta["filename"].(string); ok && fn != "" {
+				actualFilename = fn
+			}
+			if ct, ok := meta["content_type"].(string); ok && ct != "" {
+				actualContentType = ct
+			}
 		}
+
+		// If metadata lookup succeeded and confirmed file is NOT an image, skip it
+		if actualContentType != "" || actualFilename != "" {
+			if !isImageAttachment(actualFilename, actualContentType) && !isImageAttachment(att.Filename, att.ContentType) {
+				cancel()
+				continue
+			}
+		}
+		if actualFilename != "" && actualFilename != att.Filename {
+			destPath = filepath.Join(destDir, actualFilename)
+			if fi, err := os.Stat(destPath); err == nil && fi.Size() > 0 {
+				imagePaths = append(imagePaths, destPath)
+				cancel()
+				continue
+			}
+		}
+
 		if downloadURL == "" {
 			downloadURL = fmt.Sprintf("/api/attachments/%s/download", att.ID)
 		}

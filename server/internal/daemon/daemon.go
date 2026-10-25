@@ -8748,14 +8748,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		idleWatchdogTimeout = d.cfg.OpenCodeIdleWatchdog
 	}
 
-	var imageAttachments []string
-	if len(task.ChatMessageAttachments) > 0 {
-		attDir := filepath.Join(taskTempDir, "attachments")
-		if taskTempDir == "" {
-			attDir = filepath.Join(os.TempDir(), "multica-task-attachments-"+task.ID)
-		}
-		imageAttachments = d.downloadTaskImageAttachments(ctx, task, agentToken, attDir, taskLog)
+	attDir := filepath.Join(taskTempDir, "attachments")
+	if taskTempDir == "" {
+		attDir = filepath.Join(os.TempDir(), "multica-task-attachments-"+task.ID)
 	}
+	imageAttachments := d.downloadTaskImageAttachments(ctx, task, agentToken, attDir, taskLog, prompt)
 
 	execOpts := agent.ExecOptions{
 		EnableTaskSupplement:       taskSupplementNegotiated,
