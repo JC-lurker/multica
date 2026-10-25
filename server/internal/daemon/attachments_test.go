@@ -144,4 +144,12 @@ func TestDownloadTaskImageAttachments(t *testing.T) {
 			t.Errorf("expected 0 paths on failure, got: %v", paths)
 		}
 	})
+
+	t.Run("extracts image attachment URLs from prompt text fallback", func(t *testing.T) {
+		promptWithImg := "Hello please check this out:\n\n![diagram.png](https://api.multica.ai/api/attachments/att-1/download)"
+		paths := d.downloadTaskImageAttachments(context.Background(), Task{WorkspaceID: "ws-1"}, "tok", targetDir, slog.Default(), promptWithImg)
+		if len(paths) != 1 {
+			t.Fatalf("expected 1 image path extracted from prompt, got: %v", paths)
+		}
+	})
 }
