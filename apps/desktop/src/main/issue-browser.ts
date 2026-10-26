@@ -201,9 +201,11 @@ export async function pickIssueBrowserElement(
   if (!entry) return null;
   entry.view.webContents.focus();
   entry.abortPick?.();
+  let abort = () => {};
   const aborted = new Promise<null>((resolve) => {
-    entry.abortPick = () => resolve(null);
+    abort = () => resolve(null);
   });
+  entry.abortPick = abort;
   let raw: unknown;
   try {
     raw = await Promise.race([
@@ -211,7 +213,8 @@ export async function pickIssueBrowserElement(
       aborted,
     ]);
   } finally {
-    entry.abortPick = null;
+    // A newer pick may have replaced this handle; only clear our own.
+    if (entry.abortPick === abort) entry.abortPick = null;
   }
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Partial<IssueBrowserPickedElement>;
