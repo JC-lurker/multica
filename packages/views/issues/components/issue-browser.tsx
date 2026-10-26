@@ -255,7 +255,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
         role="separator"
         aria-orientation="vertical"
         aria-label={t(($) => $.browser.resize)}
-        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none hover:bg-border active:bg-border"
+        className="absolute inset-y-0 -left-2 z-10 w-2 cursor-col-resize touch-none hover:bg-border active:bg-border"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           dragRef.current = { startX: e.clientX, startWidth: width };
