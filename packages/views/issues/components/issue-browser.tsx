@@ -19,13 +19,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
-import { useCreateComment } from "@multica/core/issues/mutations";
+import { attachmentToDraftUpload } from "@multica/core/drafts/draft-upload";
+import { useCommentDraftStore } from "@multica/core/issues/stores";
 import { useIssueBrowserStore } from "@multica/core/issues/stores/issue-browser-store";
 import { Button } from "@multica/ui/components/ui/button";
 import { IconButton } from "@multica/ui/components/common/icon-button";
 import { Input } from "@multica/ui/components/ui/input";
-import { Textarea } from "@multica/ui/components/ui/textarea";
 import { cn } from "@multica/ui/lib/utils";
+import { attachmentMarkdown } from "../../editor/use-coordinated-uploads";
 import { useT } from "../../i18n";
 
 // Mirrors apps/desktop/src/shared/issue-browser.ts. Shared views cannot import
@@ -123,8 +124,20 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
   const bridge = getBridge()!;
   const { t } = useT("issues");
   const close = useIssueBrowserStore((s) => s.close);
-  const createComment = useCreateComment(issueId);
+  const width = useIssueBrowserStore((s) => s.width);
+  const setWidth = useIssueBrowserStore((s) => s.setWidth);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+
+  // The floating chat launcher and window are anchored to the whole content
+  // area; this keeps them clear of the panel, in the issue content region.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--issue-browser-inset", `${width}px`);
+    return () => {
+      root.style.removeProperty("--issue-browser-inset");
+    };
+  }, [width]);
   const [state, setState] = useState<BrowserState | null>(null);
   const [address, setAddress] = useState("");
   const [editingAddress, setEditingAddress] = useState(false);
@@ -194,14 +207,14 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
     void bridge.draw(issueId, { type: "tool", tool: value });
   };
 
+  // Populates the issue's comment composer; the user reviews and sends it there.
   const send = async () => {
     setSending(true);
     try {
       const cap = await bridge.capture(issueId);
       if (!cap.ok) throw new Error(cap.error ?? t(($) => $.browser.capture_failed));
       const attachment = await api.uploadFile(pngFile(cap.value.pngBase64), { issueId });
-      const link = `[${cap.value.pageTitle || cap.value.pageUrl}](${cap.value.pageUrl})`;
-      const lines = [link];
+      const lines = [`[${cap.value.pageTitle || cap.value.pageUrl}](${cap.value.pageUrl})`];
       if (picked) {
         lines.push(`${t(($) => $.browser.selected_element)}: \`${picked.selector}\``);
         if (picked.text) {
@@ -213,12 +226,13 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
               .join("\n"),
           );
         }
+        if (note.trim()) lines.push(note.trim());
       }
-      if (note.trim()) lines.push(note.trim());
-      await createComment.mutateAsync({
-        content: lines.join("\n\n"),
-        attachmentIds: [attachment.id],
-      });
+      lines.push(attachmentMarkdown(attachment));
+      const draftKey = `new:${issueId}` as const;
+      const drafts = useCommentDraftStore.getState();
+      drafts.addUpload(draftKey, attachmentToDraftUpload(attachment));
+      drafts.appendToDraftContent(draftKey, lines.join("\n\n"));
       toast.success(t(($) => $.browser.sent));
       setPicked(null);
       setNote("");
@@ -243,7 +257,31 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
   );
 
   return (
-    <aside className="flex h-full w-[min(480px,45%)] shrink-0 flex-col border-l bg-background">
+    <aside
+      className="relative flex h-full max-w-[80%] shrink-0 flex-col border-l bg-background"
+      style={{ width }}
+    >
+      {/* Pointer capture keeps the drag alive while the cursor crosses the native page view. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t(($) => $.browser.resize)}
+        className="absolute inset-y-0 -left-2 z-10 w-2 cursor-col-resize touch-none hover:bg-border active:bg-border"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          dragRef.current = { startX: e.clientX, startWidth: width };
+        }}
+        onPointerMove={(e) => {
+          const drag = dragRef.current;
+          if (drag) setWidth(drag.startWidth + drag.startX - e.clientX);
+        }}
+        onPointerUp={() => {
+          dragRef.current = null;
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null;
+        }}
+      />
       <div className="flex items-center gap-1 border-b px-2 py-1.5">
         <IconButton label={t(($) => $.browser.back)} size="icon-xs" disabled={!state?.canGoBack} onClick={() => void bridge.control(issueId, "back")}>
           <ArrowLeft />
@@ -334,6 +372,9 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
         <IconButton label={t(($) => $.browser.clear)} size="icon-xs" onClick={() => void bridge.draw(issueId, { type: "clear" })}>
           <Trash2 />
         </IconButton>
+        <IconButton label={t(($) => $.browser.send_drawing)} size="icon-xs" disabled={sending} onClick={() => void send()}>
+          <Send />
+        </IconButton>
       </div>
 
       {selecting && (
@@ -342,31 +383,29 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
         </p>
       )}
 
+      {picked && (
+        <div className="flex items-center gap-1 border-b bg-muted/50 px-2 py-1.5">
+          <Crosshair className="size-3 shrink-0 text-muted-foreground" />
+          <code className="max-w-[30%] shrink-0 truncate text-caption">{picked.selector}</code>
+          <Input
+            value={note}
+            placeholder={t(($) => $.browser.note_placeholder)}
+            aria-label={t(($) => $.browser.note_placeholder)}
+            className="h-7 min-w-0 flex-1"
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <Button size="xs" disabled={sending} aria-busy={sending} onClick={() => void send()}>
+            {t(($) => $.browser.send)}
+          </Button>
+          <IconButton label={t(($) => $.browser.discard)} size="icon-xs" onClick={() => { setPicked(null); setNote(""); }}>
+            <X />
+          </IconButton>
+        </div>
+      )}
+
       {/* The native page view is positioned over this placeholder. */}
       <div ref={viewportRef} className="min-h-0 flex-1" />
 
-      <div className="flex flex-col gap-2 border-t p-2">
-        {picked && (
-          <div className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-caption">
-            <Crosshair className="size-3 shrink-0" />
-            <code className="min-w-0 flex-1 truncate">{picked.selector}</code>
-            <IconButton label={t(($) => $.browser.discard)} size="icon-xs" onClick={() => setPicked(null)}>
-              <X />
-            </IconButton>
-          </div>
-        )}
-        <Textarea
-          value={note}
-          rows={2}
-          placeholder={t(($) => $.browser.note_placeholder)}
-          aria-label={t(($) => $.browser.note_placeholder)}
-          onChange={(e) => setNote(e.target.value)}
-        />
-        <Button size="sm" disabled={sending} aria-busy={sending} onClick={() => void send()}>
-          <Send />
-          {t(($) => $.browser.send)}
-        </Button>
-      </div>
     </aside>
   );
 }

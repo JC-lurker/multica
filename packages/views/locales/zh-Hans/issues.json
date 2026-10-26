@@ -1708,15 +1708,16 @@
     "undo": "撤销",
     "clear": "清除绘图",
     "color": "颜色",
-    "send_drawing": "将绘图发送到评论",
+    "send_drawing": "发送绘图",
     "note_placeholder": "添加备注",
-    "send": "发送到评论",
+    "send": "发送",
     "discard": "放弃",
-    "sent": "已发送到评论",
+    "sent": "已添加到评论草稿",
     "send_failed": "发送失败",
     "selected_element": "已选元素",
     "open_external": "在默认浏览器中打开",
     "capture_failed": "无法截取页面",
-    "screenshot_alt": "浏览器截图"
+    "screenshot_alt": "浏览器截图",
+    "resize": "调整浏览器宽度"
   }
 }
