@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
-import { useChatStore } from "@multica/core/chat";
 import { useCreateComment } from "@multica/core/issues/mutations";
 import { useIssueBrowserStore } from "@multica/core/issues/stores/issue-browser-store";
 import { Button } from "@multica/ui/components/ui/button";
@@ -138,33 +137,11 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
   const [color, setColor] = useState(COLORS[0]!);
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
-  // The floating chat window is DOM and would sit under the native page view,
-  // so the page steps aside (as a still snapshot) while chat is open.
-  const chatOpen = useChatStore((s) => s.isOpen);
-  const [snapshot, setSnapshot] = useState<string | null>(null);
-  const [paused, setPaused] = useState(false);
-
-  useEffect(() => {
-    if (!chatOpen) {
-      setPaused(false);
-      setSnapshot(null);
-      return;
-    }
-    let alive = true;
-    void bridge.capture(issueId).then((res) => {
-      if (!alive) return;
-      if (res.ok) setSnapshot(`data:image/png;base64,${res.value.pngBase64}`);
-      setPaused(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [bridge, issueId, chatOpen]);
 
   // Attach the native view over the viewport placeholder and keep it aligned.
   useEffect(() => {
     const el = viewportRef.current;
-    if (!el || paused) return;
+    if (!el) return;
     let last = toBounds(el);
     let raf = 0;
     let alive = true;
@@ -192,7 +169,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
       off();
       void bridge.hide(issueId);
     };
-  }, [bridge, issueId, paused]);
+  }, [bridge, issueId]);
 
   useEffect(() => {
     if (!editingAddress && state) setAddress(state.url === "about:blank" ? "" : state.url);
@@ -393,11 +370,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
       )}
 
       {/* The native page view is positioned over this placeholder. */}
-      <div ref={viewportRef} className="relative min-h-0 flex-1">
-        {paused && snapshot && (
-          <img src={snapshot} alt={t(($) => $.browser.screenshot_alt)} className="size-full object-cover" style={{ objectPosition: "top left" }} />
-        )}
-      </div>
+      <div ref={viewportRef} className="min-h-0 flex-1" />
 
       <div className="flex flex-col gap-2 border-t p-2">
         {picked && (
