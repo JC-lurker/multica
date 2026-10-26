@@ -128,6 +128,16 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
   const setWidth = useIssueBrowserStore((s) => s.setWidth);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+
+  // The floating chat launcher and window are anchored to the whole content
+  // area; this keeps them clear of the panel, in the issue content region.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--issue-browser-inset", `${width}px`);
+    return () => {
+      root.style.removeProperty("--issue-browser-inset");
+    };
+  }, [width]);
   const [state, setState] = useState<BrowserState | null>(null);
   const [address, setAddress] = useState("");
   const [editingAddress, setEditingAddress] = useState(false);
