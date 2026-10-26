@@ -124,6 +124,9 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
   const { t } = useT("issues");
   const close = useIssueBrowserStore((s) => s.close);
   const createComment = useCreateComment(issueId);
+  const width = useIssueBrowserStore((s) => s.width);
+  const setWidth = useIssueBrowserStore((s) => s.setWidth);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<BrowserState | null>(null);
   const [address, setAddress] = useState("");
@@ -243,7 +246,31 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
   );
 
   return (
-    <aside className="flex h-full w-[min(480px,45%)] shrink-0 flex-col border-l bg-background">
+    <aside
+      className="relative flex h-full max-w-[80%] shrink-0 flex-col border-l bg-background"
+      style={{ width }}
+    >
+      {/* Pointer capture keeps the drag alive while the cursor crosses the native page view. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t(($) => $.browser.resize)}
+        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none hover:bg-border active:bg-border"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          dragRef.current = { startX: e.clientX, startWidth: width };
+        }}
+        onPointerMove={(e) => {
+          const drag = dragRef.current;
+          if (drag) setWidth(drag.startWidth + drag.startX - e.clientX);
+        }}
+        onPointerUp={() => {
+          dragRef.current = null;
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null;
+        }}
+      />
       <div className="flex items-center gap-1 border-b px-2 py-1.5">
         <IconButton label={t(($) => $.browser.back)} size="icon-xs" disabled={!state?.canGoBack} onClick={() => void bridge.control(issueId, "back")}>
           <ArrowLeft />

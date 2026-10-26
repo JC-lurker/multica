@@ -1717,6 +1717,7 @@
     "selected_element": "선택한 요소",
     "open_external": "기본 브라우저에서 열기",
     "capture_failed": "페이지를 캡처할 수 없습니다",
-    "screenshot_alt": "브라우저 스크린샷"
+    "screenshot_alt": "브라우저 스크린샷",
+    "resize": "브라우저 너비 조절"
   }
 }

@@ -1717,6 +1717,7 @@
     "selected_element": "選択した要素",
     "open_external": "既定のブラウザで開く",
     "capture_failed": "ページをキャプチャできませんでした",
-    "screenshot_alt": "ブラウザのスクリーンショット"
+    "screenshot_alt": "ブラウザのスクリーンショット",
+    "resize": "ブラウザの幅を変更"
   }
 }

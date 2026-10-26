@@ -1783,6 +1783,7 @@
     "selected_element": "Selected element",
     "open_external": "Open in default browser",
     "capture_failed": "Could not capture the page",
-    "screenshot_alt": "Browser screenshot"
+    "screenshot_alt": "Browser screenshot",
+    "resize": "Resize browser"
   }
 }

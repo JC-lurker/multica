@@ -1783,6 +1783,7 @@
     "selected_element": "Élément sélectionné",
     "open_external": "Ouvrir dans le navigateur par défaut",
     "capture_failed": "Impossible de capturer la page",
-    "screenshot_alt": "Capture du navigateur"
+    "screenshot_alt": "Capture du navigateur",
+    "resize": "Redimensionner le navigateur"
   }
 }
