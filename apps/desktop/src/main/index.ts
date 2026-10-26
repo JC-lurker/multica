@@ -1,3 +1,4 @@
+import { registerIssueBrowserIpc, watchWindowForIssueBrowsers } from "./issue-browser-ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, screen } from "electron";
 import { homedir } from "os";
 import { join } from "path";
@@ -654,6 +655,7 @@ if (!gotTheLock) {
 
     app.on("browser-window-created", (_, window) => {
       optimizer.watchWindowShortcuts(window);
+      watchWindowForIssueBrowsers(window);
     });
 
     // IPC: open URL in default browser (used by renderer for Google login).
@@ -670,6 +672,8 @@ if (!gotTheLock) {
     ipcMain.on("window:close", (event) => {
       BrowserWindow.fromWebContents(event.sender)?.close();
     });
+
+    registerIssueBrowserIpc();
 
     ipcMain.handle("window:open-issue", (event, request: unknown) => {
       if (!BrowserWindow.fromWebContents(event.sender)) {
