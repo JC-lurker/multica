@@ -94,7 +94,9 @@ const OVERLAY_SELECTOR = [
   "context-menu",
   "select",
 ]
-  .map((n) => `[data-slot="${n}-content"]`)
+  // keepMounted content (e.g. the running-agent chip popover) stays in the DOM
+  // while closed; only count content that is open.
+  .map((n) => `[data-slot="${n}-content"][data-open]`)
   .join(",");
 
 function toBounds(el: HTMLElement): Bounds {
@@ -181,7 +183,12 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
       else void bridge.show(issueId, (last = toBounds(el)));
     };
     const mo = new MutationObserver(syncCovered);
-    mo.observe(document.body, { childList: true, subtree: true });
+    mo.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-open"],
+    });
     syncCovered();
     const tick = () => {
       if (covered) {
