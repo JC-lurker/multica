@@ -85,6 +85,18 @@ function pngFile(base64: string): File {
   return new File([bytes], `browser-${Date.now()}.png`, { type: "image/png" });
 }
 
+const OVERLAY_SELECTOR = [
+  "dialog",
+  "alert-dialog",
+  "sheet",
+  "popover",
+  "dropdown-menu",
+  "context-menu",
+  "select",
+]
+  .map((n) => `[data-slot="${n}-content"]`)
+  .join(",");
+
 function toBounds(el: HTMLElement): Bounds {
   const r = el.getBoundingClientRect();
   return { x: r.x, y: r.y, width: r.width, height: r.height };
@@ -158,7 +170,24 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
     void bridge.show(issueId, last).then((res) => {
       if (alive && res.ok) setState(res.value);
     });
+    // A native view always paints above the DOM, so detach it while any
+    // overlay (dialog, popover, menu, sheet) is open, and restore it after.
+    let covered = false;
+    const syncCovered = () => {
+      const now = !!document.querySelector(OVERLAY_SELECTOR);
+      if (now === covered) return;
+      covered = now;
+      if (covered) void bridge.hide(issueId);
+      else void bridge.show(issueId, (last = toBounds(el)));
+    };
+    const mo = new MutationObserver(syncCovered);
+    mo.observe(document.body, { childList: true, subtree: true });
+    syncCovered();
     const tick = () => {
+      if (covered) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       const next = toBounds(el);
       if (
         next.x !== last.x || next.y !== last.y ||
@@ -176,6 +205,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
+      mo.disconnect();
       off();
       void bridge.hide(issueId);
     };
