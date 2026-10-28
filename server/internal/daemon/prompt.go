@@ -71,8 +71,18 @@ func perTurnContextBlocks(task Task, opts promptOpts) string {
 	b.WriteString(execenv.BuildOnBehalfOfBlock(task.InitiatorName, task.InitiatorEmail))
 	b.WriteString(execenv.BuildConnectedAppsBlock(task.ConnectedApps))
 	b.WriteString(buildJoinedWakeupsBlock(task.WakeupJoined))
+	b.WriteString(buildBrowserHintBlock(task))
 	b.WriteString(buildProjectWorkflowBlock(task))
 	return b.String()
+}
+
+// buildBrowserHintBlock tells issue runs about the desktop browser bridge. It
+// is a pointer only: the commands document themselves via `multica browser -h`.
+func buildBrowserHintBlock(task Task) string {
+	if task.IssueID == "" || task.ChatSessionID != "" {
+		return ""
+	}
+	return fmt.Sprintf("\n[Browser] If you need to see or operate the issue's browser panel in Multica desktop, use `multica browser snapshot --issue %s`, then `click`/`type`/`goto`/`state` (see `multica browser --help`). It fails with a clear error when the desktop app is not running.\n", task.IssueID)
 }
 
 // taskHasProjectWorkflow reports whether this run's prompt carries a

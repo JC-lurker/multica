@@ -202,6 +202,12 @@ export function controlIssueBrowser(
   return true;
 }
 
+/** The guest page's WebContents, for the agent bridge. */
+export function getIssueBrowserWebContents(issueId: string) {
+  const wc = entries.get(issueId)?.view.webContents;
+  return wc && !wc.isDestroyed() ? wc : null;
+}
+
 export function getIssueBrowserState(issueId: string): IssueBrowserState | null {
   const entry = entries.get(issueId);
   return entry ? snapshot(issueId, entry) : null;
