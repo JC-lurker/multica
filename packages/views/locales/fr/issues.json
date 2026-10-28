@@ -1799,6 +1799,11 @@
     "open_external": "Ouvrir dans le navigateur par défaut",
     "capture_failed": "Impossible de capturer la page",
     "screenshot_alt": "Capture du navigateur",
-    "resize": "Redimensionner le navigateur"
+    "resize": "Redimensionner le navigateur",
+    "profile": "Profil",
+    "profile_default": "Par défaut",
+    "profile_add": "Nouveau profil",
+    "profile_name_placeholder": "Nom du profil",
+    "profile_create": "Créer"
   }
 }

@@ -1800,6 +1800,11 @@
     "open_external": "Open in default browser",
     "capture_failed": "Could not capture the page",
     "screenshot_alt": "Browser screenshot",
-    "resize": "Resize browser"
+    "resize": "Resize browser",
+    "profile": "Profile",
+    "profile_default": "Default",
+    "profile_add": "New profile",
+    "profile_name_placeholder": "Profile name",
+    "profile_create": "Create"
   }
 }

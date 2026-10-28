@@ -109,8 +109,8 @@ function subscribeToMainRendererChannel<T>(
 const desktopAPI = {
   /** Per-issue embedded browser (guest pages live in the main process). */
   issueBrowser: {
-    show: (issueId: string, bounds: IssueBrowserBounds, url?: string) =>
-      ipcRenderer.invoke("issue-browser:show", issueId, bounds, url),
+    show: (issueId: string, bounds: IssueBrowserBounds, url?: string, profile?: string) =>
+      ipcRenderer.invoke("issue-browser:show", issueId, bounds, url, profile),
     setBounds: (issueId: string, bounds: IssueBrowserBounds) =>
       ipcRenderer.invoke("issue-browser:set-bounds", issueId, bounds),
     hide: (issueId: string) => ipcRenderer.invoke("issue-browser:hide", issueId),

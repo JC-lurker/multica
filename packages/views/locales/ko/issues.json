@@ -1734,6 +1734,11 @@
     "open_external": "기본 브라우저에서 열기",
     "capture_failed": "페이지를 캡처할 수 없습니다",
     "screenshot_alt": "브라우저 스크린샷",
-    "resize": "브라우저 너비 조절"
+    "resize": "브라우저 너비 조절",
+    "profile": "프로필",
+    "profile_default": "기본",
+    "profile_add": "새 프로필",
+    "profile_name_placeholder": "프로필 이름",
+    "profile_create": "만들기"
   }
 }

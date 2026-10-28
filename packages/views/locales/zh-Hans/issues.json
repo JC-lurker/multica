@@ -1734,6 +1734,11 @@
     "open_external": "在默认浏览器中打开",
     "capture_failed": "无法截取页面",
     "screenshot_alt": "浏览器截图",
-    "resize": "调整浏览器宽度"
+    "resize": "调整浏览器宽度",
+    "profile": "配置文件",
+    "profile_default": "默认",
+    "profile_add": "新建配置文件",
+    "profile_name_placeholder": "配置文件名称",
+    "profile_create": "创建"
   }
 }

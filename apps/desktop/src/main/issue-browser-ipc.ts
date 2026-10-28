@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
-import type { IssueBrowserResult } from "../shared/issue-browser";
+import { type IssueBrowserResult, parseIssueBrowserProfile } from "../shared/issue-browser";
 import {
   cancelIssueBrowserPick,
   captureIssueBrowser,
@@ -58,12 +58,13 @@ function parseDrawCommand(raw: unknown): DrawCommand | null {
 }
 
 export function registerIssueBrowserIpc(): void {
-  ipcMain.handle("issue-browser:show", (event, issueId: unknown, bounds: unknown, url: unknown) => {
+  ipcMain.handle("issue-browser:show", (event, issueId: unknown, bounds: unknown, url: unknown, profile: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const b = parseBounds(bounds);
-    if (!win || !isId(issueId) || !b) return invalid;
+    const p = parseIssueBrowserProfile(profile);
+    if (!win || !isId(issueId) || !b || !p) return invalid;
     return guarded(() =>
-      showIssueBrowser(win, issueId, b, typeof url === "string" ? url : undefined),
+      showIssueBrowser(win, issueId, b, typeof url === "string" ? url : undefined, p),
     );
   });
   ipcMain.handle("issue-browser:set-bounds", (_e, issueId: unknown, bounds: unknown) => {

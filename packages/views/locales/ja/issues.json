@@ -1734,6 +1734,11 @@
     "open_external": "既定のブラウザで開く",
     "capture_failed": "ページをキャプチャできませんでした",
     "screenshot_alt": "ブラウザのスクリーンショット",
-    "resize": "ブラウザの幅を変更"
+    "resize": "ブラウザの幅を変更",
+    "profile": "プロファイル",
+    "profile_default": "デフォルト",
+    "profile_add": "新しいプロファイル",
+    "profile_name_placeholder": "プロファイル名",
+    "profile_create": "作成"
   }
 }

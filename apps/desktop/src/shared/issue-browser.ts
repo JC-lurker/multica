@@ -3,6 +3,15 @@
 
 export const ISSUE_BROWSER_STATE_CHANNEL = "issue-browser:state";
 
+export const DEFAULT_ISSUE_BROWSER_PROFILE = "default";
+const PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** Missing profile means the default one; anything malformed is rejected. */
+export function parseIssueBrowserProfile(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return DEFAULT_ISSUE_BROWSER_PROFILE;
+  return typeof raw === "string" && PROFILE_ID.test(raw) ? raw : null;
+}
+
 export type IssueBrowserBounds = {
   x: number;
   y: number;

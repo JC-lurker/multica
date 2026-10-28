@@ -28,7 +28,7 @@ import type {
 import type { TabSelectionShortcutKey } from "../shared/main-renderer-messages";
 
 interface IssueBrowserAPI {
-  show: (issueId: string, bounds: IssueBrowserBounds, url?: string) => Promise<IssueBrowserResult<IssueBrowserState>>;
+  show: (issueId: string, bounds: IssueBrowserBounds, url?: string, profile?: string) => Promise<IssueBrowserResult<IssueBrowserState>>;
   setBounds: (issueId: string, bounds: IssueBrowserBounds) => Promise<IssueBrowserResult<boolean>>;
   hide: (issueId: string) => Promise<IssueBrowserResult<boolean>>;
   close: (issueId: string) => Promise<IssueBrowserResult<boolean>>;
