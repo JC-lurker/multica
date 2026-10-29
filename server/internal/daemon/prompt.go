@@ -82,7 +82,7 @@ func buildBrowserHintBlock(task Task) string {
 	if task.IssueID == "" || task.ChatSessionID != "" {
 		return ""
 	}
-	return fmt.Sprintf("\n[Browser] If you need to see or operate the issue's browser panel in Multica desktop, use `multica browser snapshot --issue %s`, then `click`/`type`/`goto`/`state` (see `multica browser --help`). It fails with a clear error when the desktop app is not running.\n", task.IssueID)
+	return fmt.Sprintf("\n[Browser] If you need to see or operate the issue's browser panel in Multica desktop, use `multica browser snapshot --issue %s`, then `click`/`type`/`goto`/`wait`/`shot`/`state` (see `multica browser --help`). It fails with a clear error when the desktop app is not running.\n", task.IssueID)
 }
 
 // taskHasProjectWorkflow reports whether this run's prompt carries a

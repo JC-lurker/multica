@@ -59,6 +59,7 @@ export const PICK_ELEMENT_SCRIPT = `new Promise((resolve) => {
     const el = e.target;
     if (!(el instanceof Element)) return finish(null);
     const r = el.getBoundingClientRect();
+    window.__multicaPicked = el; // exposed to the agent bridge as @picked
     finish({
       selector: cssPath(el),
       tag: el.tagName.toLowerCase(),

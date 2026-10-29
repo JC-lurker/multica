@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +35,43 @@ var browserSnapshotCmd = &cobra.Command{
 	Short: "List interactive elements with @eN refs",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		return runBrowser(cmd, "snapshot", nil)
+		scope, _ := cmd.Flags().GetString("scope")
+		body := map[string]any{}
+		if scope != "" {
+			body["scope"] = scope
+		}
+		return runBrowser(cmd, "snapshot", body)
+	},
+}
+
+var browserWaitCmd = &cobra.Command{
+	Use:   "wait",
+	Short: "Wait until the page contains text or its URL contains a substring",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		text, _ := cmd.Flags().GetString("text")
+		url, _ := cmd.Flags().GetString("url")
+		if (text == "") == (url == "") {
+			return errors.New("pass exactly one of --text or --url")
+		}
+		timeout, _ := cmd.Flags().GetDuration("timeout")
+		return runBrowser(cmd, "wait", map[string]any{"text": text, "url": url, "timeout_ms": timeout.Milliseconds()})
+	},
+}
+
+var browserShotCmd = &cobra.Command{
+	Use:   "shot [@ref]",
+	Short: "Save a downscaled (<=1024px) JPEG screenshot of the page or an element",
+	Long: `Save a screenshot and print its path. Without a ref the visible page is captured;
+@ref may be an element from the latest snapshot or @picked (the element the user
+picked in the Browser panel).`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		body := map[string]any{}
+		if len(args) == 1 {
+			body["ref"] = args[0]
+		}
+		return runBrowser(cmd, "shot", body)
 	},
 }
 
@@ -83,7 +120,12 @@ func init() {
 	_ = browserCmd.MarkPersistentFlagRequired("issue")
 	browserTypeCmd.Flags().Bool("clear", false, "Select existing content first so it is replaced")
 	browserTypeCmd.Flags().Bool("submit", false, "Press Enter after typing")
-	browserCmd.AddCommand(browserSnapshotCmd, browserClickCmd, browserTypeCmd, browserGotoCmd, browserStateCmd)
+	browserSnapshotCmd.Flags().String("scope", "", "Only list elements under this @ref (use when the snapshot is truncated)")
+	browserWaitCmd.Flags().String("text", "", "Wait for the page to contain this text")
+	browserWaitCmd.Flags().String("url", "", "Wait for the URL to contain this substring")
+	browserWaitCmd.Flags().Duration("timeout", 10*time.Second, "Give up after this long (max 25s)")
+	browserShotCmd.Flags().String("out", "", "Write the JPEG here (default: a temp file)")
+	browserCmd.AddCommand(browserSnapshotCmd, browserClickCmd, browserTypeCmd, browserGotoCmd, browserWaitCmd, browserShotCmd, browserStateCmd)
 }
 
 // browserBridgeFile is what the desktop app writes at startup. It lives under
@@ -156,6 +198,27 @@ func callBrowserBridge(ctx context.Context, bridge browserBridgeFile, action str
 	return out, nil
 }
 
+func writeBrowserShot(cmd *cobra.Command, b64 string) error {
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return fmt.Errorf("decode screenshot: %w", err)
+	}
+	path, _ := cmd.Flags().GetString("out")
+	if path == "" {
+		f, err := os.CreateTemp("", "multica-shot-*.jpg")
+		if err != nil {
+			return err
+		}
+		path = f.Name()
+		f.Close()
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), path)
+	return nil
+}
+
 func runBrowser(cmd *cobra.Command, action string, body map[string]any) error {
 	path, err := browserBridgeFilePath()
 	if err != nil {
@@ -188,6 +251,13 @@ func runBrowser(cmd *cobra.Command, action string, body map[string]any) error {
 	}
 	if snap, ok := out["snapshot"].(string); ok {
 		fmt.Fprintln(cmd.OutOrStdout(), snap)
+		return nil
+	}
+	if jpeg, ok := out["jpeg"].(string); ok {
+		return writeBrowserShot(cmd, jpeg)
+	}
+	if diff, ok := out["diff"].(string); ok {
+		fmt.Fprintln(cmd.OutOrStdout(), diff)
 		return nil
 	}
 	if state, ok := out["state"]; ok {

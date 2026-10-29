@@ -5,6 +5,7 @@ import {
   type RunningBridge,
   BridgeError,
   RefTable,
+  diffSnapshot,
   formatSnapshot,
   startBridgeServer,
 } from "./agent-browser-bridge";
@@ -58,15 +59,41 @@ describe("formatSnapshot / RefTable", () => {
   });
 });
 
+describe("snapshot cap and diff", () => {
+  it("caps output and scopes to a subtree keeping refs", () => {
+    const refs = new RefTable();
+    const nodes = [
+      { nodeId: "1", childIds: ["2", "3"], role: { value: "group" }, backendDOMNodeId: 1 },
+      node("button", "A", 10, { nodeId: "2" }),
+      node("button", "B", 11, { nodeId: "3" }),
+      node("button", "C", 12, { nodeId: "4" }),
+    ];
+    const capped = formatSnapshot(nodes, refs, { max: 2 });
+    expect(capped).toContain("1 more elements");
+    const scoped = formatSnapshot(nodes, refs, { scope: 1 });
+    expect(scoped.split("\n")).toEqual(['[@e1] button "A"', '[@e2] button "B"']);
+  });
+
+  it("diff reports added, changed and removed", () => {
+    const refs = new RefTable();
+    formatSnapshot([node("button", "A", 1), node("button", "B", 2)], refs);
+    const out = diffSnapshot([node("button", "A2", 1), node("link", "N", 3)], refs);
+    expect(out).toEqual(['~ [@e1] button "A2"', '+ [@e3] link "N"', "- [@e2]"]);
+    expect(diffSnapshot([node("button", "A2", 1), node("link", "N", 3)], refs)).toEqual([]);
+  });
+});
+
 describe("bridge server", () => {
   let bridge: RunningBridge | undefined;
   afterEach(() => bridge?.server.close());
 
   const driver = (): BrowserDriver => ({
     snapshot: vi.fn().mockResolvedValue("snap"),
-    click: vi.fn().mockResolvedValue(undefined),
-    type: vi.fn().mockResolvedValue(undefined),
-    goto: vi.fn().mockResolvedValue(undefined),
+    click: vi.fn().mockResolvedValue("no changes"),
+    type: vi.fn().mockResolvedValue("no changes"),
+    goto: vi.fn().mockResolvedValue("no changes"),
+    wait: vi.fn().mockResolvedValue("no changes"),
+    shot: vi.fn().mockResolvedValue("anBn"),
     state: vi.fn().mockResolvedValue({ url: "https://x" }),
   });
 
@@ -101,6 +128,18 @@ describe("bridge server", () => {
     const res = await call(bridge, "/v1/click", { issue: "i", ref: "@e9" });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ ok: false, error: "stale ref: x" });
+  });
+
+  it("clamps wait timeout and returns shot jpeg", async () => {
+    const d = driver();
+    bridge = await startBridgeServer(d, "secret");
+    await call(bridge, "/v1/wait", { issue: "i", text: "hi", timeout_ms: 999999 });
+    expect(d.wait).toHaveBeenCalledWith("i", { text: "hi", url: undefined, timeoutMs: 25_000 });
+    expect((await call(bridge, "/v1/wait", { issue: "i" })).status).toBe(400);
+    expect(await (await call(bridge, "/v1/shot", { issue: "i", ref: "@picked" })).json()).toEqual({
+      ok: true,
+      jpeg: "anBn",
+    });
   });
 
   it("validates required fields", async () => {

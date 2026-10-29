@@ -38,6 +38,8 @@ const INTERACTIVE_ROLES = new Set([
 ]);
 
 export interface AxNode {
+  nodeId?: string;
+  childIds?: string[];
   ignored?: boolean;
   role?: { value?: unknown };
   name?: { value?: unknown };
@@ -46,15 +48,31 @@ export interface AxNode {
   backendDOMNodeId?: number;
 }
 
+/** Snapshot size cap; the rest is reachable with `--scope @eN`. */
+export const SNAPSHOT_MAX_ELEMENTS = 300;
+const DIFF_MAX_LINES = 20;
+
 /** `@eN` refs for one page; cleared whenever the page navigates. */
 export class RefTable {
   private byRef = new Map<string, number>();
+  private byId = new Map<number, string>();
   private next = 1;
+  /** Interactive elements as of the last snapshot/diff (null until a snapshot). */
+  known: Map<number, string> | null = null;
 
-  assign(backendNodeId: number): string {
-    const ref = `@e${this.next++}`;
-    this.byRef.set(ref, backendNodeId);
+  /** Stable per DOM node: asking twice returns the same ref. */
+  refFor(backendNodeId: number): string {
+    let ref = this.byId.get(backendNodeId);
+    if (!ref) {
+      ref = `@e${this.next++}`;
+      this.byId.set(backendNodeId, ref);
+      this.byRef.set(ref, backendNodeId);
+    }
     return ref;
+  }
+
+  refOf(backendNodeId: number): string | undefined {
+    return this.byId.get(backendNodeId);
   }
 
   resolve(ref: string): number {
@@ -65,19 +83,35 @@ export class RefTable {
 
   clear(): void {
     this.byRef.clear();
+    this.byId.clear();
+    this.known = null;
     this.next = 1;
   }
 }
 
-/** Renders interactive AX nodes, one per line, assigning a fresh ref to each. */
-export function formatSnapshot(nodes: AxNode[], refs: RefTable): string {
-  refs.clear();
-  const lines: string[] = [];
-  for (const node of nodes) {
+/** Interactive AX nodes as `backendNodeId -> description`; `scope` limits to a subtree. */
+export function describeNodes(nodes: AxNode[], scope?: number): Map<number, string> {
+  let list = nodes;
+  if (scope !== undefined) {
+    const byNodeId = new Map(nodes.map((n) => [n.nodeId, n]));
+    const root = nodes.find((n) => n.backendDOMNodeId === scope);
+    if (!root) throw new BridgeError(409, STALE_REF_MESSAGE);
+    list = [];
+    const stack = [root];
+    while (stack.length) {
+      const n = stack.pop()!;
+      list.push(n);
+      for (const c of [...(n.childIds ?? [])].reverse()) {
+        const child = byNodeId.get(c);
+        if (child) stack.push(child);
+      }
+    }
+  }
+  const out = new Map<number, string>();
+  for (const node of list) {
     const role = String(node.role?.value ?? "");
     if (node.ignored || !INTERACTIVE_ROLES.has(role) || node.backendDOMNodeId === undefined) continue;
-    const ref = refs.assign(node.backendDOMNodeId);
-    let line = `[${ref}] ${role}`;
+    let line = role;
     const name = String(node.name?.value ?? "").trim();
     if (name) line += ` ${JSON.stringify(name)}`;
     const value = node.value?.value;
@@ -87,16 +121,61 @@ export function formatSnapshot(nodes: AxNode[], refs: RefTable): string {
         line += ` ${p.name}${p.value?.value === true ? "" : `=${String(p.value?.value)}`}`;
       }
     }
-    lines.push(line);
+    out.set(node.backendDOMNodeId, line);
+  }
+  return out;
+}
+
+/**
+ * Renders interactive AX nodes, one per line, assigning refs. A full snapshot
+ * resets refs; a scoped one keeps them. Output is capped at `max` elements.
+ */
+export function formatSnapshot(
+  nodes: AxNode[],
+  refs: RefTable,
+  opts: { scope?: number; max?: number } = {},
+): string {
+  const max = opts.max ?? SNAPSHOT_MAX_ELEMENTS;
+  if (opts.scope === undefined) refs.clear();
+  const found = describeNodes(nodes, opts.scope);
+  refs.known = new Map([...(refs.known ?? []), ...found]);
+  const lines = [...found].slice(0, max).map(([id, text]) => `[${refs.refFor(id)}] ${text}`);
+  if (found.size > max) {
+    lines.push(`... ${found.size - max} more elements not shown; narrow with \`--scope @eN\``);
   }
   return lines.join("\n");
 }
 
+/** Interactive elements added (+), changed (~) or removed (-) since the last snapshot/diff. */
+export function diffSnapshot(nodes: AxNode[], refs: RefTable): string[] {
+  const before = refs.known;
+  if (!before) return [];
+  const now = describeNodes(nodes);
+  const out: string[] = [];
+  for (const [id, text] of now) {
+    const prev = before.get(id);
+    if (prev !== text) out.push(`${prev === undefined ? "+" : "~"} [${refs.refFor(id)}] ${text}`);
+  }
+  for (const id of before.keys()) {
+    const ref = refs.refOf(id);
+    if (!now.has(id) && ref) out.push(`- [${ref}]`);
+  }
+  refs.known = now;
+  if (out.length > DIFF_MAX_LINES) {
+    return [...out.slice(0, DIFF_MAX_LINES), `... ${out.length - DIFF_MAX_LINES} more changes`];
+  }
+  return out;
+}
+
 export interface BrowserDriver {
-  snapshot(issue: string): Promise<string>;
-  click(issue: string, ref: string): Promise<void>;
-  type(issue: string, ref: string, text: string, opts: { clear: boolean; submit: boolean }): Promise<void>;
-  goto(issue: string, url: string): Promise<void>;
+  /** Actions resolve to a short diff (url/title and changed elements) for the CLI to print. */
+  snapshot(issue: string, scope?: string): Promise<string>;
+  click(issue: string, ref: string): Promise<string>;
+  type(issue: string, ref: string, text: string, opts: { clear: boolean; submit: boolean }): Promise<string>;
+  goto(issue: string, url: string): Promise<string>;
+  wait(issue: string, opts: { text?: string; url?: string; timeoutMs: number }): Promise<string>;
+  /** Downscaled JPEG, base64. */
+  shot(issue: string, ref?: string): Promise<string>;
   state(issue: string): Promise<unknown>;
 }
 
@@ -130,23 +209,40 @@ function str(body: Record<string, unknown>, key: string): string {
   return v;
 }
 
+function optStr(body: Record<string, unknown>, key: string): string | undefined {
+  const v = body[key];
+  return typeof v === "string" && v !== "" ? v : undefined;
+}
+
+export const WAIT_DEFAULT_MS = 10_000;
+export const WAIT_MAX_MS = 25_000;
+
 async function dispatch(driver: BrowserDriver, action: string, body: Record<string, unknown>) {
   const issue = str(body, "issue");
   switch (action) {
     case "snapshot":
-      return { snapshot: await driver.snapshot(issue) };
+      return { snapshot: await driver.snapshot(issue, optStr(body, "scope")) };
     case "click":
-      await driver.click(issue, str(body, "ref"));
-      return {};
+      return { diff: await driver.click(issue, str(body, "ref")) };
     case "type":
-      await driver.type(issue, str(body, "ref"), typeof body.text === "string" ? body.text : "", {
-        clear: body.clear === true,
-        submit: body.submit === true,
-      });
-      return {};
+      return {
+        diff: await driver.type(issue, str(body, "ref"), typeof body.text === "string" ? body.text : "", {
+          clear: body.clear === true,
+          submit: body.submit === true,
+        }),
+      };
     case "goto":
-      await driver.goto(issue, str(body, "url"));
-      return {};
+      return { diff: await driver.goto(issue, str(body, "url")) };
+    case "wait": {
+      const text = optStr(body, "text");
+      const url = optStr(body, "url");
+      if (!text && !url) throw new BridgeError(400, "text or url is required");
+      const asked = typeof body.timeout_ms === "number" ? body.timeout_ms : WAIT_DEFAULT_MS;
+      const timeoutMs = Math.min(Math.max(asked, 0), WAIT_MAX_MS);
+      return { diff: await driver.wait(issue, { text, url, timeoutMs }) };
+    }
+    case "shot":
+      return { jpeg: await driver.shot(issue, optStr(body, "ref")) };
     case "state":
       return { state: await driver.state(issue) };
     default:

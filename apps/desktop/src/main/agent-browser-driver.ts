@@ -9,10 +9,11 @@ import {
   NO_BROWSER_MESSAGE,
   RefTable,
   STALE_REF_MESSAGE,
+  diffSnapshot,
   formatSnapshot,
   startBridgeServer,
 } from "./agent-browser-bridge";
-import { getIssueBrowserState, getIssueBrowserWebContents, navigateIssueBrowser } from "./issue-browser";
+import { captureIssueBrowserJpeg, getIssueBrowserState, getIssueBrowserWebContents, navigateIssueBrowser } from "./issue-browser";
 
 /** Where the CLI discovers the bridge; mirrors `bridgeFilePath` in the Go CLI. */
 export function bridgeFilePath(): string {
@@ -42,8 +43,26 @@ function target(issue: string): { wc: WebContents; refs: RefTable } {
   return { wc, refs: refsFor(wc) };
 }
 
-async function withNode<T>(refs: RefTable, ref: string, run: (backendNodeId: number) => Promise<T>) {
-  const backendNodeId = refs.resolve(ref);
+const PICKED_REF = "@picked";
+const NO_PICK_MESSAGE =
+  "no picked element; ask the user to use the picker in the Browser panel (it re-resolves after navigation)";
+
+/** `@picked` is the element the user last picked; the pick script stashes it on the page. */
+async function resolvePicked(wc: WebContents): Promise<number> {
+  const evaluated = (await wc.debugger.sendCommand("Runtime.evaluate", {
+    expression: "window.__multicaPicked",
+  })) as { result: { objectId?: string; subtype?: string } };
+  if (evaluated.result.subtype !== "node" || !evaluated.result.objectId) {
+    throw new BridgeError(409, NO_PICK_MESSAGE);
+  }
+  const { node } = (await wc.debugger.sendCommand("DOM.describeNode", {
+    objectId: evaluated.result.objectId,
+  })) as { node: { backendNodeId: number } };
+  return node.backendNodeId;
+}
+
+async function withNode<T>(wc: WebContents, refs: RefTable, ref: string, run: (backendNodeId: number) => Promise<T>) {
+  const backendNodeId = ref === PICKED_REF ? await resolvePicked(wc) : refs.resolve(ref);
   try {
     return await run(backendNodeId);
   } catch (err) {
@@ -55,67 +74,130 @@ async function withNode<T>(refs: RefTable, ref: string, run: (backendNodeId: num
   }
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function axNodes(wc: WebContents): Promise<AxNode[]> {
+  const tree = (await wc.debugger.sendCommand("Accessibility.getFullAXTree")) as { nodes: AxNode[] };
+  return tree.nodes;
+}
+
+/** Run an action, let the page settle, and report what changed (small by design). */
+async function withDiff(wc: WebContents, refs: RefTable, act: () => Promise<void>): Promise<string> {
+  const before = { url: wc.getURL(), title: wc.getTitle() };
+  await act();
+  await sleep(150);
+  for (let i = 0; i < 25 && wc.isLoading(); i++) await sleep(100);
+  const lines: string[] = [];
+  if (wc.getURL() !== before.url) lines.push(`url: ${wc.getURL()}`);
+  if (wc.getTitle() !== before.title) lines.push(`title: ${wc.getTitle()}`);
+  if (refs.known) lines.push(...diffSnapshot(await axNodes(wc), refs));
+  else lines.push("refs reset (new page); run `multica browser snapshot`");
+  return lines.length ? lines.join("\n") : "no changes";
+}
+
 const driver: BrowserDriver = {
-  async snapshot(issue) {
+  async snapshot(issue, scope) {
     const { wc, refs } = target(issue);
-    const tree = (await wc.debugger.sendCommand("Accessibility.getFullAXTree")) as { nodes: AxNode[] };
-    const body = formatSnapshot(tree.nodes, refs);
+    const scopeId = scope ? await withNode(wc, refs, scope, async (id) => id) : undefined;
+    const body = formatSnapshot(await axNodes(wc), refs, { scope: scopeId });
     return `page: ${wc.getTitle()} ${wc.getURL()}\n${body}`;
   },
 
   async click(issue, ref) {
     const { wc, refs } = target(issue);
-    await withNode(refs, ref, async (backendNodeId) => {
-      await wc.debugger.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId });
-      const { model } = (await wc.debugger.sendCommand("DOM.getBoxModel", { backendNodeId })) as {
-        model: { content: number[] };
-      };
-      const [x1, y1, , , x3, y3] = model.content as [number, number, number, number, number, number];
-      const x = (x1 + x3) / 2;
-      const y = (y1 + y3) / 2;
-      for (const type of ["mouseMoved", "mousePressed", "mouseReleased"] as const) {
-        await wc.debugger.sendCommand("Input.dispatchMouseEvent", {
-          type,
-          x,
-          y,
-          button: type === "mouseMoved" ? "none" : "left",
-          clickCount: type === "mouseMoved" ? 0 : 1,
-        });
-      }
-    });
+    return withDiff(wc, refs, () =>
+      withNode(wc, refs, ref, async (backendNodeId) => {
+        await wc.debugger.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId });
+        const { model } = (await wc.debugger.sendCommand("DOM.getBoxModel", { backendNodeId })) as {
+          model: { content: number[] };
+        };
+        const [x1, y1, , , x3, y3] = model.content as [number, number, number, number, number, number];
+        const x = (x1 + x3) / 2;
+        const y = (y1 + y3) / 2;
+        for (const type of ["mouseMoved", "mousePressed", "mouseReleased"] as const) {
+          await wc.debugger.sendCommand("Input.dispatchMouseEvent", {
+            type,
+            x,
+            y,
+            button: type === "mouseMoved" ? "none" : "left",
+            clickCount: type === "mouseMoved" ? 0 : 1,
+          });
+        }
+      }),
+    );
   },
 
   async type(issue, ref, text, opts) {
     const { wc, refs } = target(issue);
-    await withNode(refs, ref, async (backendNodeId) => {
-      await wc.debugger.sendCommand("DOM.focus", { backendNodeId });
-      if (opts.clear) {
-        const { object } = (await wc.debugger.sendCommand("DOM.resolveNode", { backendNodeId })) as {
-          object: { objectId: string };
-        };
-        await wc.debugger.sendCommand("Runtime.callFunctionOn", {
-          objectId: object.objectId,
-          functionDeclaration: "function(){ if (this.select) this.select(); }",
-        });
-      }
-      if (text) await wc.debugger.sendCommand("Input.insertText", { text });
-      if (opts.submit) {
-        for (const type of ["keyDown", "keyUp"] as const) {
-          await wc.debugger.sendCommand("Input.dispatchKeyEvent", {
-            type,
-            key: "Enter",
-            code: "Enter",
-            windowsVirtualKeyCode: 13,
-            ...(type === "keyDown" ? { text: "\r" } : {}),
+    return withDiff(wc, refs, () =>
+      withNode(wc, refs, ref, async (backendNodeId) => {
+        await wc.debugger.sendCommand("DOM.focus", { backendNodeId });
+        if (opts.clear) {
+          const { object } = (await wc.debugger.sendCommand("DOM.resolveNode", { backendNodeId })) as {
+            object: { objectId: string };
+          };
+          await wc.debugger.sendCommand("Runtime.callFunctionOn", {
+            objectId: object.objectId,
+            functionDeclaration: "function(){ if (this.select) this.select(); }",
           });
         }
-      }
-    });
+        if (text) await wc.debugger.sendCommand("Input.insertText", { text });
+        if (opts.submit) {
+          for (const type of ["keyDown", "keyUp"] as const) {
+            await wc.debugger.sendCommand("Input.dispatchKeyEvent", {
+              type,
+              key: "Enter",
+              code: "Enter",
+              windowsVirtualKeyCode: 13,
+              ...(type === "keyDown" ? { text: "\r" } : {}),
+            });
+          }
+        }
+      }),
+    );
   },
 
   async goto(issue, url) {
-    target(issue);
-    if (!navigateIssueBrowser(issue, url)) throw new BridgeError(400, "only http(s) URLs are allowed");
+    const { wc, refs } = target(issue);
+    return withDiff(wc, refs, async () => {
+      if (!navigateIssueBrowser(issue, url)) throw new BridgeError(400, "only http(s) URLs are allowed");
+    });
+  },
+
+  async wait(issue, { text, url, timeoutMs }) {
+    const { wc, refs } = target(issue);
+    const deadline = Date.now() + timeoutMs;
+    const expression = text ? `!!document.body && document.body.innerText.includes(${JSON.stringify(text)})` : "";
+    for (;;) {
+      const met = text
+        ? ((await wc.debugger.sendCommand("Runtime.evaluate", { expression })) as { result: { value?: unknown } })
+            .result.value === true
+        : wc.getURL().includes(url ?? "");
+      if (met) break;
+      if (Date.now() >= deadline) {
+        throw new BridgeError(408, `timed out after ${timeoutMs}ms waiting for ${text ? "text" : "url"}`);
+      }
+      await sleep(200);
+    }
+    return withDiff(wc, refs, async () => {});
+  },
+
+  async shot(issue, ref) {
+    const { wc, refs } = target(issue);
+    let rect: { x: number; y: number; width: number; height: number } | undefined;
+    if (ref) {
+      rect = await withNode(wc, refs, ref, async (backendNodeId) => {
+        await wc.debugger.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId });
+        const { model } = (await wc.debugger.sendCommand("DOM.getBoxModel", { backendNodeId })) as {
+          model: { content: number[] };
+        };
+        const [x1, y1, , , x3, y3] = model.content as [number, number, number, number, number, number];
+        return { x: x1, y: y1, width: x3 - x1, height: y3 - y1 };
+      });
+    }
+    const jpeg = await captureIssueBrowserJpeg(issue, rect);
+    if (!jpeg) throw new BridgeError(404, NO_BROWSER_MESSAGE);
+    return jpeg;
   },
 
   async state(issue) {

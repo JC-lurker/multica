@@ -310,6 +310,20 @@ export async function captureIssueBrowser(
   };
 }
 
+/** Agent screenshot: visible page (or `rect`), downscaled to <=1024px, as base64 JPEG. */
+export async function captureIssueBrowserJpeg(
+  issueId: string,
+  rect?: IssueBrowserBounds,
+): Promise<string | null> {
+  const entry = entries.get(issueId);
+  if (!entry) return null;
+  let image = await entry.view.webContents.capturePage(rect ? toRect(rect) : undefined);
+  const { width, height } = image.getSize();
+  const scale = Math.min(1, 1024 / Math.max(width, height, 1));
+  if (scale < 1) image = image.resize({ width: Math.max(1, Math.round(width * scale)) });
+  return image.toJPEG(70).toString("base64");
+}
+
 /** Tear down views owned by a window that is closing. */
 export function releaseIssueBrowsersForWindow(win: BrowserWindow): void {
   for (const [issueId, entry] of entries) {
