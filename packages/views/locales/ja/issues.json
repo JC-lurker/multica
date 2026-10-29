@@ -1739,6 +1739,10 @@
     "profile_default": "デフォルト",
     "profile_add": "新しいプロファイル",
     "profile_name_placeholder": "プロファイル名",
-    "profile_create": "作成"
+    "profile_create": "作成",
+    "agent_controlling": "エージェントがこのブラウザを操作中です",
+    "agent_paused": "エージェントを一時停止中。操作権はあなたにあります。",
+    "agent_take_over": "操作を引き継ぐ",
+    "agent_resume": "エージェントを再開"
   }
 }

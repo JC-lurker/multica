@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { WebContents } from "electron";
+import { dialog, type WebContents } from "electron";
 import {
   type AxNode,
   type BrowserDriver,
@@ -9,11 +9,48 @@ import {
   NO_BROWSER_MESSAGE,
   RefTable,
   STALE_REF_MESSAGE,
+  wrapUntrusted,
   diffSnapshot,
   formatSnapshot,
   startBridgeServer,
 } from "./agent-browser-bridge";
-import { captureIssueBrowserJpeg, getIssueBrowserState, getIssueBrowserWebContents, navigateIssueBrowser } from "./issue-browser";
+import { assertNotPaused, beginAgentAction, onAgentStatus } from "./agent-browser-control";
+import {
+  captureIssueBrowserJpeg,
+  emitIssueBrowserState,
+  getIssueBrowserState,
+  getIssueBrowserWebContents,
+  getIssueBrowserWindow,
+  navigateIssueBrowser,
+} from "./issue-browser";
+
+const PAUSED_MESSAGE =
+  "the user has taken over the browser; stop and wait for them to resume the agent from the Browser panel";
+const paused = () => new BridgeError(423, PAUSED_MESSAGE);
+
+/** Blocks on a native dialog; the agent only proceeds on an explicit Allow. */
+async function confirm(issue: string, message: string, detail: string): Promise<void> {
+  const opts = {
+    type: "warning" as const,
+    buttons: ["Deny", "Allow"],
+    defaultId: 0,
+    cancelId: 0,
+    message,
+    detail,
+  };
+  const win = getIssueBrowserWindow(issue);
+  const { response } = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+  if (response !== 1) throw new BridgeError(403, "the user declined this action");
+  assertNotPaused(issue, paused);
+}
+
+const originOf = (url: string) => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+};
 
 /** Where the CLI discovers the bridge; mirrors `bridgeFilePath` in the Go CLI. */
 export function bridgeFilePath(): string {
@@ -39,6 +76,7 @@ function refsFor(wc: WebContents): RefTable {
 function target(issue: string): { wc: WebContents; refs: RefTable } {
   const wc = getIssueBrowserWebContents(issue);
   if (!wc) throw new BridgeError(404, NO_BROWSER_MESSAGE);
+  beginAgentAction(issue, paused);
   if (!wc.debugger.isAttached()) wc.debugger.attach("1.3");
   return { wc, refs: refsFor(wc) };
 }
@@ -92,7 +130,7 @@ async function withDiff(wc: WebContents, refs: RefTable, act: () => Promise<void
   if (wc.getTitle() !== before.title) lines.push(`title: ${wc.getTitle()}`);
   if (refs.known) lines.push(...diffSnapshot(await axNodes(wc), refs));
   else lines.push("refs reset (new page); run `multica browser snapshot`");
-  return lines.length ? lines.join("\n") : "no changes";
+  return lines.length ? wrapUntrusted(lines.join("\n")) : "no changes";
 }
 
 const driver: BrowserDriver = {
@@ -100,7 +138,7 @@ const driver: BrowserDriver = {
     const { wc, refs } = target(issue);
     const scopeId = scope ? await withNode(wc, refs, scope, async (id) => id) : undefined;
     const body = formatSnapshot(await axNodes(wc), refs, { scope: scopeId });
-    return `page: ${wc.getTitle()} ${wc.getURL()}\n${body}`;
+    return wrapUntrusted(`page: ${wc.getTitle()} ${wc.getURL()}\n${body}`);
   },
 
   async click(issue, ref) {
@@ -129,6 +167,22 @@ const driver: BrowserDriver = {
 
   async type(issue, ref, text, opts) {
     const { wc, refs } = target(issue);
+    if (text) {
+      const isPassword = await withNode(wc, refs, ref, async (backendNodeId) => {
+        const { object } = (await wc.debugger.sendCommand("DOM.resolveNode", { backendNodeId })) as {
+          object: { objectId: string };
+        };
+        const res = (await wc.debugger.sendCommand("Runtime.callFunctionOn", {
+          objectId: object.objectId,
+          functionDeclaration: "function(){ return this.tagName === 'INPUT' && this.type === 'password'; }",
+          returnByValue: true,
+        })) as { result: { value?: unknown } };
+        return res.result.value === true;
+      });
+      if (isPassword) {
+        await confirm(issue, "Agent wants to type into a password field", `Page: ${wc.getURL()}`);
+      }
+    }
     return withDiff(wc, refs, () =>
       withNode(wc, refs, ref, async (backendNodeId) => {
         await wc.debugger.sendCommand("DOM.focus", { backendNodeId });
@@ -159,6 +213,11 @@ const driver: BrowserDriver = {
 
   async goto(issue, url) {
     const { wc, refs } = target(issue);
+    const from = originOf(wc.getURL());
+    const to = originOf(/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`);
+    if (from && from !== "null" && to && from !== to) {
+      await confirm(issue, "Agent wants to open another site", `From ${from}\nTo ${url}`);
+    }
     return withDiff(wc, refs, async () => {
       if (!navigateIssueBrowser(issue, url)) throw new BridgeError(400, "only http(s) URLs are allowed");
     });
@@ -169,6 +228,7 @@ const driver: BrowserDriver = {
     const deadline = Date.now() + timeoutMs;
     const expression = text ? `!!document.body && document.body.innerText.includes(${JSON.stringify(text)})` : "";
     for (;;) {
+      assertNotPaused(issue, paused);
       const met = text
         ? ((await wc.debugger.sendCommand("Runtime.evaluate", { expression })) as { result: { value?: unknown } })
             .result.value === true
@@ -206,6 +266,8 @@ const driver: BrowserDriver = {
     return state;
   },
 };
+
+onAgentStatus((issue) => emitIssueBrowserState(issue));
 
 let stop: (() => void) | null = null;
 

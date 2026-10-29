@@ -49,6 +49,7 @@ type BrowserState = {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  agent?: "idle" | "active" | "paused";
 };
 type PickedElement = {
   selector: string;
@@ -69,6 +70,7 @@ interface IssueBrowserBridge {
   control: (id: string, a: "back" | "forward" | "reload" | "stop") => Promise<Result<boolean>>;
   pickElement: (id: string) => Promise<Result<PickedElement | null>>;
   cancelPick: (id: string) => Promise<Result<boolean>>;
+  setAgentPaused?: (id: string, paused: boolean) => Promise<Result<boolean>>;
   draw: (
     id: string,
     c:
@@ -421,6 +423,34 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
           <X />
         </IconButton>
       </div>
+
+      {state?.agent && state.agent !== "idle" && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b bg-amber-500/10 px-2 py-1 text-xs"
+        >
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full bg-amber-500",
+              state.agent === "active" && "animate-pulse",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate">
+            {state.agent === "paused"
+              ? t(($) => $.browser.agent_paused)
+              : t(($) => $.browser.agent_controlling)}
+          </span>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => void bridge.setAgentPaused?.(issueId, state.agent !== "paused")}
+          >
+            {state.agent === "paused"
+              ? t(($) => $.browser.agent_resume)
+              : t(($) => $.browser.agent_take_over)}
+          </Button>
+        </div>
+      )}
 
       {addingProfile && (
         <form

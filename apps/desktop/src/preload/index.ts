@@ -132,6 +132,8 @@ const desktopAPI = {
         | { type: "clear" },
     ) =>
       ipcRenderer.invoke("issue-browser:draw", issueId, command),
+    setAgentPaused: (issueId: string, paused: boolean) =>
+      ipcRenderer.invoke("issue-browser:set-agent-paused", issueId, paused),
     capture: (issueId: string, rect?: IssueBrowserBounds) =>
       ipcRenderer.invoke("issue-browser:capture", issueId, rect),
     onState: (callback: (state: IssueBrowserState) => void) => {

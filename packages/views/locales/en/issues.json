@@ -1805,6 +1805,10 @@
     "profile_default": "Default",
     "profile_add": "New profile",
     "profile_name_placeholder": "Profile name",
-    "profile_create": "Create"
+    "profile_create": "Create",
+    "agent_controlling": "An agent is controlling this browser",
+    "agent_paused": "Agent paused. You have control.",
+    "agent_take_over": "Take over",
+    "agent_resume": "Resume agent"
   }
 }

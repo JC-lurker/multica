@@ -8,6 +8,7 @@ import {
   type IssueBrowserPickedElement,
   type IssueBrowserState,
 } from "../shared/issue-browser";
+import { agentStatus } from "./agent-browser-control";
 import { isSafeExternalHttpUrl } from "./external-url";
 import { DEFAULT_URL, normalizeUrl } from "./issue-browser-url";
 import {
@@ -64,7 +65,20 @@ function snapshot(issueId: string, entry: Entry): IssueBrowserState {
     loading: wc.isLoading(),
     canGoBack: wc.navigationHistory.canGoBack(),
     canGoForward: wc.navigationHistory.canGoForward(),
+    agent: agentStatus(issueId),
   };
+}
+
+/** Push fresh state (e.g. after the agent indicator changes). */
+export function emitIssueBrowserState(issueId: string): void {
+  const entry = entries.get(issueId);
+  if (entry) emitState(issueId, entry);
+}
+
+/** Window currently showing the issue's browser, for native confirm dialogs. */
+export function getIssueBrowserWindow(issueId: string): BrowserWindow | null {
+  const win = entries.get(issueId)?.window;
+  return win && !win.isDestroyed() ? win : null;
 }
 
 function emitState(issueId: string, entry: Entry): void {

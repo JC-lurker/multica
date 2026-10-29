@@ -26,6 +26,8 @@ export type IssueBrowserState = {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** Agent control indicator: active while an agent drives the page, paused after user take-over. */
+  agent: "idle" | "active" | "paused";
 };
 
 export type IssueBrowserDrawTool = "pen" | "rect" | "arrow" | "eraser";

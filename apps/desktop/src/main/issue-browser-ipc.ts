@@ -1,3 +1,4 @@
+import { setAgentPaused } from "./agent-browser-control";
 import { BrowserWindow, ipcMain } from "electron";
 import { type IssueBrowserResult, parseIssueBrowserProfile } from "../shared/issue-browser";
 import {
@@ -113,6 +114,11 @@ export function registerIssueBrowserIpc(): void {
     const cmd = parseDrawCommand(command);
     if (!isId(issueId) || !cmd) return invalid;
     return guarded(() => drawIssueBrowser(issueId, cmd));
+  });
+  ipcMain.handle("issue-browser:set-agent-paused", (_e, issueId: unknown, paused: unknown) => {
+    if (!isId(issueId) || typeof paused !== "boolean") return invalid;
+    setAgentPaused(issueId, paused);
+    return { ok: true, value: true } as const;
   });
   ipcMain.handle("issue-browser:capture", (_e, issueId: unknown, rect: unknown) => {
     if (!isId(issueId)) return invalid;

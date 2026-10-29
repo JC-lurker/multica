@@ -1804,6 +1804,10 @@
     "profile_default": "Par défaut",
     "profile_add": "Nouveau profil",
     "profile_name_placeholder": "Nom du profil",
-    "profile_create": "Créer"
+    "profile_create": "Créer",
+    "agent_controlling": "Un agent contrôle ce navigateur",
+    "agent_paused": "Agent en pause. Vous avez le contrôle.",
+    "agent_take_over": "Prendre la main",
+    "agent_resume": "Reprendre l'agent"
   }
 }

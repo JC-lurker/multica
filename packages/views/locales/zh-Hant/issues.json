@@ -1738,6 +1738,10 @@
     "profile_default": "預設",
     "profile_add": "新增設定檔",
     "profile_name_placeholder": "設定檔名稱",
-    "profile_create": "建立"
+    "profile_create": "建立",
+    "agent_controlling": "智慧代理正在控制此瀏覽器",
+    "agent_paused": "智慧代理已暫停，由你控制。",
+    "agent_take_over": "接管",
+    "agent_resume": "恢復智慧代理"
   }
 }

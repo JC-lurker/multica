@@ -46,6 +46,7 @@ interface IssueBrowserAPI {
       | { type: "undo" }
       | { type: "clear" },
   ) => Promise<IssueBrowserResult<IssueBrowserDrawState>>;
+  setAgentPaused: (issueId: string, paused: boolean) => Promise<IssueBrowserResult<boolean>>;
   capture: (issueId: string, rect?: IssueBrowserBounds) => Promise<IssueBrowserResult<IssueBrowserCapture>>;
   onState: (callback: (state: IssueBrowserState) => void) => () => void;
 }
