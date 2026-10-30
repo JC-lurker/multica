@@ -81,3 +81,6 @@ __pycache__/
 perf-report/
 # The production example is a tracked template; `.env*` above would hide it.
 !apps/mobile/.env.production.example
+
+# Go build output at repo root of cmd (produced by `go build`, never commit)
+server/cmd/multica/multica
