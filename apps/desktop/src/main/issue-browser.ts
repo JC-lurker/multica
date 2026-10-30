@@ -1,5 +1,6 @@
 import { BrowserWindow, session, WebContentsView, type Session } from "electron";
 import {
+  DEFAULT_ISSUE_BROWSER_PROFILE as DEFAULT_PROFILE,
   ISSUE_BROWSER_STATE_CHANNEL,
   type IssueBrowserBounds,
   type IssueBrowserCapture,
@@ -7,6 +8,7 @@ import {
   type IssueBrowserPickedElement,
   type IssueBrowserState,
 } from "../shared/issue-browser";
+import { agentStatus } from "./agent-browser-control";
 import { isSafeExternalHttpUrl } from "./external-url";
 import { DEFAULT_URL, normalizeUrl } from "./issue-browser-url";
 import {
@@ -19,13 +21,16 @@ import {
   drawStateScript,
 } from "./issue-browser-scripts";
 
-// One persistent profile shared by every issue browser: logins, cookies and
-// storage survive restarts and carry across issues, like a Chrome profile.
+// Each profile is its own persistent partition: logins, cookies and storage
+// survive restarts and are shared by every issue using that profile, like a
+// Chrome profile. The default profile keeps the original partition name so
+// existing logins carry over.
 const BROWSER_PARTITION = "persist:multica-browser";
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const DRAW_TOOLS = new Set(["pen", "rect", "arrow", "eraser"]);
 
 interface Entry {
+  profile: string;
   view: WebContentsView;
   window: BrowserWindow | null;
   /** Settles an in-flight element pick with null; navigation discards the page script. */
@@ -33,18 +38,21 @@ interface Entry {
 }
 
 const entries = new Map<string, Entry>();
-let browserSession: Session | null = null;
+const sessions = new Map<string, Session>();
 
-function getSession(): Session {
-  if (browserSession) return browserSession;
-  const s = session.fromPartition(BROWSER_PARTITION);
+function getSession(profile: string): Session {
+  const existing = sessions.get(profile);
+  if (existing) return existing;
+  const s = session.fromPartition(
+    profile === DEFAULT_PROFILE ? BROWSER_PARTITION : `${BROWSER_PARTITION}-${profile}`,
+  );
   // Present as stock Chrome: many sites gate on the Electron/app tokens.
   s.setUserAgent(
     s.getUserAgent().replace(/\s(Electron|multica|Multica)\/\S+/g, ""),
   );
   // The guest browser never grants device or notification permissions.
   s.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  browserSession = s;
+  sessions.set(profile, s);
   return s;
 }
 
@@ -57,7 +65,20 @@ function snapshot(issueId: string, entry: Entry): IssueBrowserState {
     loading: wc.isLoading(),
     canGoBack: wc.navigationHistory.canGoBack(),
     canGoForward: wc.navigationHistory.canGoForward(),
+    agent: agentStatus(issueId),
   };
+}
+
+/** Push fresh state (e.g. after the agent indicator changes). */
+export function emitIssueBrowserState(issueId: string): void {
+  const entry = entries.get(issueId);
+  if (entry) emitState(issueId, entry);
+}
+
+/** Window currently showing the issue's browser, for native confirm dialogs. */
+export function getIssueBrowserWindow(issueId: string): BrowserWindow | null {
+  const win = entries.get(issueId)?.window;
+  return win && !win.isDestroyed() ? win : null;
 }
 
 function emitState(issueId: string, entry: Entry): void {
@@ -66,16 +87,16 @@ function emitState(issueId: string, entry: Entry): void {
   win.webContents.send(ISSUE_BROWSER_STATE_CHANNEL, snapshot(issueId, entry));
 }
 
-function createEntry(issueId: string): Entry {
+function createEntry(issueId: string, profile: string): Entry {
   const view = new WebContentsView({
     webPreferences: {
-      session: getSession(),
+      session: getSession(profile),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
-  const entry: Entry = { view, window: null, abortPick: null };
+  const entry: Entry = { profile, view, window: null, abortPick: null };
   const wc = view.webContents;
   const update = () => emitState(issueId, entry);
   wc.on("did-start-loading", () => entry.abortPick?.());
@@ -93,10 +114,15 @@ function createEntry(issueId: string): Entry {
   return entry;
 }
 
-function getOrCreate(issueId: string): Entry {
+function getOrCreate(issueId: string, profile: string): Entry {
   let entry = entries.get(issueId);
+  // A view is bound to its session for life, so switching profile starts a new page.
+  if (entry && entry.profile !== profile) {
+    closeIssueBrowser(issueId);
+    entry = undefined;
+  }
   if (!entry) {
-    entry = createEntry(issueId);
+    entry = createEntry(issueId, profile);
     entries.set(issueId, entry);
   }
   return entry;
@@ -126,8 +152,9 @@ export function showIssueBrowser(
   issueId: string,
   bounds: IssueBrowserBounds,
   initialUrl?: string,
+  profile: string = DEFAULT_PROFILE,
 ): IssueBrowserState {
-  const entry = getOrCreate(issueId);
+  const entry = getOrCreate(issueId, profile);
   if (entry.window && entry.window !== win && !entry.window.isDestroyed()) {
     entry.window.contentView.removeChildView(entry.view);
   }
@@ -187,6 +214,12 @@ export function controlIssueBrowser(
   else if (action === "reload") wc.reload();
   else wc.stop();
   return true;
+}
+
+/** The guest page's WebContents, for the agent bridge. */
+export function getIssueBrowserWebContents(issueId: string) {
+  const wc = entries.get(issueId)?.view.webContents;
+  return wc && !wc.isDestroyed() ? wc : null;
 }
 
 export function getIssueBrowserState(issueId: string): IssueBrowserState | null {
@@ -289,6 +322,20 @@ export async function captureIssueBrowser(
     pageUrl: wc.getURL(),
     pageTitle: wc.getTitle(),
   };
+}
+
+/** Agent screenshot: visible page (or `rect`), downscaled to <=1024px, as base64 JPEG. */
+export async function captureIssueBrowserJpeg(
+  issueId: string,
+  rect?: IssueBrowserBounds,
+): Promise<string | null> {
+  const entry = entries.get(issueId);
+  if (!entry) return null;
+  let image = await entry.view.webContents.capturePage(rect ? toRect(rect) : undefined);
+  const { width, height } = image.getSize();
+  const scale = Math.min(1, 1024 / Math.max(width, height, 1));
+  if (scale < 1) image = image.resize({ width: Math.max(1, Math.round(width * scale)) });
+  return image.toJPEG(70).toString("base64");
 }
 
 /** Tear down views owned by a window that is closing. */

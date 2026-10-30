@@ -10,6 +10,7 @@ import {
   Globe,
   MoveUpRight,
   Pencil,
+  Plus,
   RotateCw,
   Send,
   Square,
@@ -21,10 +22,20 @@ import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import { attachmentToDraftUpload } from "@multica/core/drafts/draft-upload";
 import { useCommentDraftStore } from "@multica/core/issues/stores";
-import { useIssueBrowserStore } from "@multica/core/issues/stores/issue-browser-store";
+import {
+  DEFAULT_BROWSER_PROFILE_ID,
+  useIssueBrowserStore,
+} from "@multica/core/issues/stores/issue-browser-store";
 import { Button } from "@multica/ui/components/ui/button";
 import { IconButton } from "@multica/ui/components/common/icon-button";
 import { Input } from "@multica/ui/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@multica/ui/components/ui/select";
 import { cn } from "@multica/ui/lib/utils";
 import { attachmentMarkdown } from "../../editor/use-coordinated-uploads";
 import { useT } from "../../i18n";
@@ -38,6 +49,7 @@ type BrowserState = {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  agent?: "idle" | "active" | "paused";
 };
 type PickedElement = {
   selector: string;
@@ -51,13 +63,14 @@ type Result<T> = { ok: true; value: T } | { ok: false; error?: string };
 type Capture = { pngBase64: string; pageUrl: string; pageTitle: string };
 
 interface IssueBrowserBridge {
-  show: (id: string, b: Bounds, url?: string) => Promise<Result<BrowserState>>;
+  show: (id: string, b: Bounds, url?: string, profile?: string) => Promise<Result<BrowserState>>;
   setBounds: (id: string, b: Bounds) => Promise<Result<boolean>>;
   hide: (id: string) => Promise<Result<boolean>>;
   navigate: (id: string, url: string) => Promise<Result<boolean>>;
   control: (id: string, a: "back" | "forward" | "reload" | "stop") => Promise<Result<boolean>>;
   pickElement: (id: string) => Promise<Result<PickedElement | null>>;
   cancelPick: (id: string) => Promise<Result<boolean>>;
+  setAgentPaused?: (id: string, paused: boolean) => Promise<Result<boolean>>;
   draw: (
     id: string,
     c:
@@ -140,6 +153,17 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
   const close = useIssueBrowserStore((s) => s.close);
   const width = useIssueBrowserStore((s) => s.width);
   const setWidth = useIssueBrowserStore((s) => s.setWidth);
+  const profiles = useIssueBrowserStore((s) => s.profiles);
+  const savedProfile = useIssueBrowserStore((s) => s.issueProfiles[issueId]);
+  const addProfile = useIssueBrowserStore((s) => s.addProfile);
+  const setIssueProfile = useIssueBrowserStore((s) => s.setIssueProfile);
+  // A saved choice whose profile no longer exists falls back to the default.
+  const profile =
+    savedProfile && profiles.some((p) => p.id === savedProfile)
+      ? savedProfile
+      : DEFAULT_BROWSER_PROFILE_ID;
+  const [addingProfile, setAddingProfile] = useState(false);
+  const [newProfileName, setNewProfileName] = useState("");
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
 
@@ -169,7 +193,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
     let last = toBounds(el);
     let raf = 0;
     let alive = true;
-    void bridge.show(issueId, last).then((res) => {
+    void bridge.show(issueId, last, undefined, profile).then((res) => {
       if (alive && res.ok) setState(res.value);
     });
     // A native view always paints above the DOM, so detach it while any
@@ -180,7 +204,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
       if (now === covered) return;
       covered = now;
       if (covered) void bridge.hide(issueId);
-      else void bridge.show(issueId, (last = toBounds(el)));
+      else void bridge.show(issueId, (last = toBounds(el)), undefined, profile);
     };
     const mo = new MutationObserver(syncCovered);
     mo.observe(document.body, {
@@ -216,7 +240,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
       off();
       void bridge.hide(issueId);
     };
-  }, [bridge, issueId]);
+  }, [bridge, issueId, profile]);
 
   useEffect(() => {
     if (!editingAddress && state) setAddress(state.url === "about:blank" ? "" : state.url);
@@ -333,6 +357,36 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
         >
           {state?.loading ? <X /> : <RotateCw />}
         </IconButton>
+        <Select
+          items={[
+            { value: DEFAULT_BROWSER_PROFILE_ID, label: t(($) => $.browser.profile_default) },
+            ...profiles.map((p) => ({ value: p.id, label: p.name })),
+          ]}
+          value={profile}
+          onValueChange={(next) => next && setIssueProfile(issueId, next)}
+        >
+          <SelectTrigger size="sm" className="max-w-28" aria-label={t(($) => $.browser.profile)}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={DEFAULT_BROWSER_PROFILE_ID}>
+              {t(($) => $.browser.profile_default)}
+            </SelectItem>
+            {profiles.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <IconButton
+          label={t(($) => $.browser.profile_add)}
+          size="icon-xs"
+          variant={addingProfile ? "secondary" : "ghost"}
+          onClick={() => setAddingProfile((v) => !v)}
+        >
+          <Plus />
+        </IconButton>
         <form
           className="min-w-0 flex-1"
           onSubmit={(e) => {
@@ -369,6 +423,60 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
           <X />
         </IconButton>
       </div>
+
+      {state?.agent && state.agent !== "idle" && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b bg-amber-500/10 px-2 py-1 text-xs"
+        >
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full bg-amber-500",
+              state.agent === "active" && "animate-pulse",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate">
+            {state.agent === "paused"
+              ? t(($) => $.browser.agent_paused)
+              : t(($) => $.browser.agent_controlling)}
+          </span>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => void bridge.setAgentPaused?.(issueId, state.agent !== "paused")}
+          >
+            {state.agent === "paused"
+              ? t(($) => $.browser.agent_resume)
+              : t(($) => $.browser.agent_take_over)}
+          </Button>
+        </div>
+      )}
+
+      {addingProfile && (
+        <form
+          className="flex items-center gap-1 border-b px-2 py-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const id = addProfile(newProfileName);
+            if (!id) return;
+            setIssueProfile(issueId, id);
+            setNewProfileName("");
+            setAddingProfile(false);
+          }}
+        >
+          <Input
+            autoFocus
+            value={newProfileName}
+            placeholder={t(($) => $.browser.profile_name_placeholder)}
+            aria-label={t(($) => $.browser.profile_name_placeholder)}
+            className="h-7 min-w-0 flex-1"
+            onChange={(e) => setNewProfileName(e.target.value)}
+          />
+          <Button type="submit" size="xs" disabled={!newProfileName.trim()}>
+            {t(($) => $.browser.profile_create)}
+          </Button>
+        </form>
+      )}
 
       <div className="flex items-center gap-1 border-b px-2 py-1">
         <IconButton

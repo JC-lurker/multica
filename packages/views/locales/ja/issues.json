@@ -1734,6 +1734,15 @@
     "open_external": "既定のブラウザで開く",
     "capture_failed": "ページをキャプチャできませんでした",
     "screenshot_alt": "ブラウザのスクリーンショット",
-    "resize": "ブラウザの幅を変更"
+    "resize": "ブラウザの幅を変更",
+    "profile": "プロファイル",
+    "profile_default": "デフォルト",
+    "profile_add": "新しいプロファイル",
+    "profile_name_placeholder": "プロファイル名",
+    "profile_create": "作成",
+    "agent_controlling": "エージェントがこのブラウザを操作中です",
+    "agent_paused": "エージェントを一時停止中。操作権はあなたにあります。",
+    "agent_take_over": "操作を引き継ぐ",
+    "agent_resume": "エージェントを再開"
   }
 }

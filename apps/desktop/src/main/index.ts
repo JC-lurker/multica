@@ -1,3 +1,4 @@
+import { startAgentBrowserBridge, stopAgentBrowserBridge } from "./agent-browser-driver";
 import { registerIssueBrowserIpc, watchWindowForIssueBrowsers } from "./issue-browser-ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, screen } from "electron";
 import { homedir } from "os";
@@ -678,6 +679,9 @@ if (!gotTheLock) {
     });
 
     registerIssueBrowserIpc();
+    startAgentBrowserBridge().catch((err) => {
+      console.warn("[browser-bridge] failed to start:", err);
+    });
 
     ipcMain.handle("window:open-issue", (event, request: unknown) => {
       if (!BrowserWindow.fromWebContents(event.sender)) {
@@ -873,6 +877,8 @@ if (!gotTheLock) {
     });
   });
 }
+
+app.on("will-quit", stopAgentBrowserBridge);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

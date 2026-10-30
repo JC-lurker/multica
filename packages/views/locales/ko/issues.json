@@ -1734,6 +1734,15 @@
     "open_external": "기본 브라우저에서 열기",
     "capture_failed": "페이지를 캡처할 수 없습니다",
     "screenshot_alt": "브라우저 스크린샷",
-    "resize": "브라우저 너비 조절"
+    "resize": "브라우저 너비 조절",
+    "profile": "프로필",
+    "profile_default": "기본",
+    "profile_add": "새 프로필",
+    "profile_name_placeholder": "프로필 이름",
+    "profile_create": "만들기",
+    "agent_controlling": "에이전트가 이 브라우저를 제어하고 있습니다",
+    "agent_paused": "에이전트가 일시중지되었습니다. 직접 제어 중입니다.",
+    "agent_take_over": "직접 제어",
+    "agent_resume": "에이전트 재개"
   }
 }
