@@ -65,7 +65,7 @@
     },
     "categories": {
       "unstarted": "尚未開始的工作，包括待規劃和已規劃的任務。",
-      "started": "正在進行、稽覈中或已阻塞的工作。",
+      "started": "正在進行、審查中或已阻塞的工作。",
       "done": "已經完成的工作。",
       "closed": "不再繼續的工作。"
     },
@@ -73,7 +73,7 @@
       "backlog": "擱置。把任務移到這裡不會啟動智慧體。",
       "todo": "排隊中。把任務移到這裡會啟動指派的智慧體。",
       "in_progress": "正在進行。",
-      "in_review": "已交付，等待人工稽覈。會結束自動化執行。",
+      "in_review": "已交付，等待人工審查。會結束自動化執行。",
       "blocked": "被外部依賴阻塞。",
       "done": "已完成。",
       "cancelled": "決定不做。"
@@ -877,7 +877,7 @@
     "not_enabled_self_host_hint": "自託管使用者：詳見專案 README。",
     "preview_title": "飛書 Bot 安裝即將上線",
     "preview_description": "此部署尚未啟用飛書連線，請聯絡管理員。",
-    "connected_bots": "已連線的 Bot",
+    "connected_bots": "機器人",
     "loading": "載入中…",
     "empty_title": "尚未連線 Bot",
     "empty_description_prefix": "在本工作區開啟一個智慧體，點選",
@@ -924,7 +924,7 @@
     "install_starting": "正在準備二維碼…",
     "install_scan_hint": "飛書 → 掃一掃 → 授權新 PersonalAgent。",
     "install_open_link_fallback": "或點這裡直接在飛書中開啟",
-    "install_success": "安裝完成，Bot 已上線。",
+    "install_success": "機器人已綁定。請在飛書/Lark 中傳送訊息以驗證接收。",
     "install_success_toast": "飛書 Bot 已安裝",
     "install_open_link_fallback_feishu": "或點這裡直接在飛書中開啟",
     "install_open_link_fallback_lark": "或點這裡直接在 Lark 中開啟",
@@ -941,7 +941,12 @@
     "install_error_installer_bind": "已安裝 Bot，但未能繫結你的飛書身份。請重試或聯絡管理員。",
     "install_error_session_lost": "安裝會話已失效或丟失，請重新掃碼。",
     "install_error_forbidden": "你已沒有在此工作區安裝飛書 Bot 的權限，請聯絡工作區管理員。",
-    "install_error_generic": "安裝失敗，請重試。"
+    "install_error_generic": "安裝失敗，請重試。",
+    "bound_label": "已綁定",
+    "inbound_pending": "已綁定，等待訊息驗證",
+    "inbound_verified": "訊息接收已驗證",
+    "inbound_pending_hint": "請在飛書/Lark 中傳送訊息給此機器人以驗證接收。若未收到，請檢查長連線模式、im.message.receive_v1 事件訂閱，以及應用程式發布和審核狀態。既有綁定可能尚無驗證紀錄。",
+    "inbound_verified_hint": "本次綁定已收到有效訊息；這不代表持續連線、智慧體執行成功或回覆成功。"
   },
   "composio": {
     "page_description": "連線智慧體可使用的應用。",
