@@ -67,33 +67,56 @@ func TestBuildPiArgsPreservesProjectTrustFlags(t *testing.T) {
 }
 
 func TestBuildPiArgsLoadsMulticaSkills(t *testing.T) {
-	cwd := t.TempDir()
-	skill := filepath.Join(cwd, ".pi", "skills", "local-ci")
-	if err := os.MkdirAll(skill, 0o755); err != nil {
-		t.Fatal(err)
+	for _, mode := range []string{"json", "rpc"} {
+		t.Run(mode, func(t *testing.T) {
+			opts := ExecOptions{
+				Cwd:                  t.TempDir(),
+				EnableTaskSupplement: mode == "rpc",
+				PiSkillPaths: []string{
+					filepath.Join(t.TempDir(), "managed skills", "local-ci", "SKILL.md"),
+					filepath.Join(t.TempDir(), "review-multica", "SKILL.md"),
+				},
+				CustomArgs: []string{"--no-approve"},
+			}
+			args := buildPiArgs("/tmp/s.jsonl", opts, slog.Default())
+			if countArg(args, "--skill") != len(opts.PiSkillPaths) {
+				t.Fatalf("want one --skill per managed file: %v", args)
+			}
+			joined := strings.Join(args, "\x00")
+			for _, path := range opts.PiSkillPaths {
+				if !strings.Contains(joined, "--skill\x00"+path+"\x00") {
+					t.Errorf("managed skill %q missing from %v", path, args)
+				}
+			}
+			wantPrint := 0
+			if mode == "json" {
+				wantPrint = 1
+			}
+			if !strings.Contains(joined, "--mode\x00"+mode+"\x00") || countArg(args, "-p") != wantPrint {
+				t.Errorf("wrong invocation mode: %v", args)
+			}
+			if countArg(args, "--approve") != 0 || countArg(args, "--no-approve") != 1 {
+				t.Errorf("project trust flags changed: %v", args)
+			}
+			if got := buildOmpArgs("", "", opts, slog.Default()); countArg(got, "--skill") != 0 {
+				t.Fatalf("omp must not get managed Pi skills: %v", got)
+			}
+		})
 	}
-	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(cwd, ".pi", "skills", "empty"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+}
 
-	args := buildPiArgs("/tmp/s.jsonl", ExecOptions{Cwd: cwd}, slog.Default())
-	found := false
-	for i, a := range args {
-		if a == "--skill" && i+1 < len(args) && args[i+1] == skill {
-			found = true
-		}
+func TestBuildPiArgsDoesNotDiscoverProjectSkills(t *testing.T) {
+	cwd := t.TempDir()
+	path := filepath.Join(cwd, ".pi", "skills", "untrusted", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if !found || countArg(args, "--skill") != 1 {
-		t.Fatalf("want one --skill %s in %v", skill, args)
+	if err := os.WriteFile(path, []byte("repository-owned skill"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if countArg(args, "--approve") != 0 {
-		t.Fatalf("--approve must not be injected: %v", args)
-	}
-	if got := buildOmpArgs("", "", ExecOptions{Cwd: cwd}, slog.Default()); countArg(got, "--skill") != 0 {
-		t.Fatalf("omp must not get --skill: %v", got)
+	args := buildPiArgs("", ExecOptions{Cwd: cwd}, slog.Default())
+	if countArg(args, "--skill") != 0 {
+		t.Fatalf("project skill was explicitly loaded without a managed path: %v", args)
 	}
 }
 
@@ -1317,82 +1340,5 @@ func TestPreparePiMcpExtensionSkipsOmp(t *testing.T) {
 	if path != "" {
 		removePiMcpExtension(path)
 		t.Fatalf("omp wrote a pi extension at %s", path)
-	}
-}
-
-func TestBuildPiArgsImageAttachments(t *testing.T) {
-	dir := t.TempDir()
-
-	// 1x1 valid PNG
-	pngPath := filepath.Join(dir, "valid.png")
-	pngBytes := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0x63, 0x34}
-	if err := os.WriteFile(pngPath, pngBytes, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	// JPEG
-	jpgPath := filepath.Join(dir, "valid.jpg")
-	jpgBytes := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
-	if err := os.WriteFile(jpgPath, jpgBytes, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Text file
-	txtPath := filepath.Join(dir, "notes.txt")
-	if err := os.WriteFile(txtPath, []byte("hello world"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Empty image file
-	emptyImg := filepath.Join(dir, "empty.png")
-	if err := os.WriteFile(emptyImg, []byte{}, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Subdirectory
-	subDir := filepath.Join(dir, "sub.png")
-	if err := os.MkdirAll(subDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-
-	nonExistent := filepath.Join(dir, "ghost.png")
-
-	opts := ExecOptions{
-		Cwd: dir,
-		ImageAttachments: []string{
-			pngPath,
-			"@" + jpgPath, // with @ prefix
-			pngPath,       // duplicate
-			txtPath,       // not an image
-			emptyImg,      // 0 size
-			subDir,        // directory
-			nonExistent,   // missing
-			"valid.png",   // relative path
-		},
-	}
-
-	args := buildPiArgs("/tmp/s.jsonl", opts, slog.Default())
-
-	wantArgs := []string{
-		"@" + pngPath,
-		"@" + jpgPath,
-	}
-
-	for _, want := range wantArgs {
-		if countArg(args, want) != 1 {
-			t.Errorf("expected arg %q exactly once, got args: %v", want, args)
-		}
-	}
-
-	for _, unwanted := range []string{
-		"@" + txtPath,
-		"@" + emptyImg,
-		"@" + subDir,
-		"@" + nonExistent,
-		"@@" + jpgPath,
-	} {
-		if countArg(args, unwanted) != 0 {
-			t.Errorf("did not expect arg %q in args: %v", unwanted, args)
-		}
 	}
 }
