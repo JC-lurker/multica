@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -24,7 +25,8 @@ var ompSessionArgs = map[string]blockedArgMode{
 
 func buildOmpArgs(sessionPath, sessionDir string, opts ExecOptions, logger *slog.Logger) []string {
 	opts.CustomArgs = filterCustomArgs(opts.CustomArgs, ompSessionArgs, logger)
-	args := buildPiArgs(sessionPath, opts, logger)
+	// --approve is Pi-only; omp's flag set is unverified, so keep omp argv unchanged.
+	args := slices.DeleteFunc(buildPiArgs(sessionPath, opts, logger), func(a string) bool { return a == "--approve" })
 	if sessionDir != "" {
 		args = append(args, "--session-dir", sessionDir)
 	}

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1130,6 +1131,7 @@ var piCustomArgModes = map[string]blockedArgMode{
 //
 //	-p                          non-interactive mode (prompt arrives on stdin)
 //	--mode json                 emit one JSON event per line on stdout
+//	--approve                   trust project-local files so .pi/skills/ loads
 //	--session <path>            session log file (created upfront, reused on resume)
 //	--model <selector>          model selector, passed through verbatim
 //	--thinking <level>          per-agent reasoning level override
@@ -1171,7 +1173,19 @@ func buildPiArgs(sessionPath string, opts ExecOptions, logger *slog.Logger) []st
 	// Pi loads the per-task AGENTS.md the daemon writes into the workdir, so
 	// inlining the same runtime brief would duplicate it on every turn.
 	// Verified against Pi 0.67.2 (MUL-5392).
-	args = append(args, filterPiCustomArgs(opts.CustomArgs, logger)...)
+	custom := filterPiCustomArgs(opts.CustomArgs, logger)
+	// Pi 1.x ignores project-local files unless trusted. The daemon writes every
+	// workspace skill to {workDir}/.pi/skills/, so without --approve they are
+	// invisible and the agent falls back to searching the filesystem. An explicit
+	// user trust flag wins, so --no-approve still opts out.
+	// Trusts all project-local Pi resources, including any from the checked-out
+	// repo. ponytail: swap for per-skill --skill if that matters.
+	if !slices.ContainsFunc(custom, func(a string) bool {
+		return a == "--approve" || a == "-a" || a == "--no-approve" || a == "-na"
+	}) {
+		args = append(args, "--approve")
+	}
+	args = append(args, custom...)
 	// The extension is explicit, so Pi loads it without trusting the project.
 	// It stays after custom args so the managed path cannot be mistaken for the
 	// value of an extension-defined flag. A user-provided --approve remains

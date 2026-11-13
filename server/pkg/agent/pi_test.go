@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,19 @@ func TestBuildPiArgsNoToolAllowlist(t *testing.T) {
 	}
 }
 
+func TestBuildPiArgsApprovesProjectSkills(t *testing.T) {
+	// Pi 1.x ignores .pi/skills/ unless --approve is passed.
+	if !slices.Contains(buildPiArgs("/tmp/s.jsonl", ExecOptions{}, slog.Default()), "--approve") {
+		t.Error("buildPiArgs must pass --approve so UI-installed skills load")
+	}
+	if slices.Contains(buildPiArgs("/tmp/s.jsonl", ExecOptions{CustomArgs: []string{"--no-approve"}}, slog.Default()), "--approve") {
+		t.Error("user --no-approve must opt out of the default")
+	}
+	if slices.Contains(buildOmpArgs("/tmp/s.jsonl", "", ExecOptions{}, slog.Default()), "--approve") {
+		t.Error("omp argv must not get --approve")
+	}
+}
+
 func TestBuildPiArgsBasicFlags(t *testing.T) {
 	args := buildPiArgs("/tmp/s.jsonl", ExecOptions{
 		Model:         "anthropic/claude-sonnet-4-20250514",
@@ -37,8 +51,8 @@ func TestBuildPiArgsBasicFlags(t *testing.T) {
 			t.Errorf("expected %q in args, got: %v", want, args)
 		}
 	}
-	if got := countArg(args, "--approve"); got != 0 {
-		t.Errorf("--approve count = %d, want 0 in %v", got, args)
+	if got := countArg(args, "--approve"); got != 1 {
+		t.Errorf("--approve count = %d, want 1 in %v", got, args)
 	}
 	if countArg(args, "--extension") != 0 {
 		t.Errorf("extension flag without a managed config: %v", args)
@@ -1132,8 +1146,8 @@ func TestWritePiMcpExtensionIsolatesRegistrationErrorsAndLeavesProjectFile(t *te
 	if len(args) < 2 || args[len(args)-2] != "--extension" || args[len(args)-1] != path {
 		t.Fatalf("args = %v, want extension %s", args, path)
 	}
-	if countArg(args, "--approve") != 0 {
-		t.Fatalf("--approve present in %v", args)
+	if countArg(args, "--approve") != 1 {
+		t.Fatalf("--approve count != 1 in %v", args)
 	}
 }
 
@@ -1330,13 +1344,13 @@ func TestBuildPiArgsImageAttachments(t *testing.T) {
 		Cwd: dir,
 		ImageAttachments: []string{
 			pngPath,
-			"@" + jpgPath,   // with @ prefix
-			pngPath,         // duplicate
-			txtPath,         // not an image
-			emptyImg,        // 0 size
-			subDir,          // directory
-			nonExistent,     // missing
-			"valid.png",      // relative path
+			"@" + jpgPath, // with @ prefix
+			pngPath,       // duplicate
+			txtPath,       // not an image
+			emptyImg,      // 0 size
+			subDir,        // directory
+			nonExistent,   // missing
+			"valid.png",   // relative path
 		},
 	}
 
