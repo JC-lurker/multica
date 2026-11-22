@@ -40,24 +40,28 @@ import type {
   ChatMessage,
   ChatPendingTask,
   ChatQuickAction,
+  ChatWakeup,
   TaskMessagePayload,
 } from "@multica/core/types";
 import type { ChatTimelineItem } from "@multica/core/chat";
 import { buildTimeline } from "../../common/task-transcript";
-import { traceToolArgSummary } from "../../common/task-transcript/trace-event-presenter";
+import { readCommandInput, traceToolArgSummary } from "../../common/task-transcript/trace-event-presenter";
 import { OnboardingStarterCards } from "./onboarding-starter-cards";
 import { TaskStatusPill } from "./task-status-pill";
 import { CHAT_COLUMN, CHAT_GUTTER } from "./chat-column";
 import { FOLLOW_EDGE_THRESHOLD } from "../../common/task-transcript/transcript-follow";
 import { LIVE_END_ROW_ATTR, useStickToBottom } from "./stick-to-bottom";
-import { formatElapsedMs } from "../lib/format";
+import { JumpToLiveEndButton, useJumpToLiveEnd } from "./jump-to-live-end";
+import { formatElapsedMs, formatMessageTime } from "../lib/format";
 import {
   canonicalAnswerText,
   extractCopyText,
   splitTimeline,
 } from "../lib/copy-text";
 import { stripChatQuickActionsProtocol } from "../lib/quick-actions";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
+import { isAnnotatableChatMessage, type ChatAnnotations } from "./use-chat-annotations";
+import { ChatWakeupCards, ChatWakeupDivider, useWakeupsBySourceTask } from "./chat-wakeups";
 
 // ─── Public component ────────────────────────────────────────────────────
 
@@ -102,6 +106,10 @@ interface ChatMessageListProps {
    * that reply until chat:quick_actions resolves it.
    */
   quickActionsPendingMessageId?: string | null;
+  /** Lets the reader annotate settled assistant replies into the next message. */
+  annotations?: Pick<ChatAnnotations, "cardRef" | "captureProps" | "popup" | "revealSourceRef">;
+  /** The conversation's wakeups: dividers for wakeup turns, cards under the replies that made them. */
+  wakeups?: ChatWakeup[];
 }
 
 // ─── Virtuoso chrome ─────────────────────────────────────────────────────
@@ -201,6 +209,8 @@ export function ChatMessageList({
   quickActionsDisabled = false,
   onRegenerateQuickActions,
   quickActionsPendingMessageId = null,
+  annotations,
+  wakeups,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
@@ -215,7 +225,7 @@ export function ChatMessageList({
   const pinToLiveEnd = useCallback(() => {
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end" });
   }, []);
-  const { isFollowing, onContentHeightChanged, hasReachedLiveEnd } = useStickToBottom(
+  const { isFollowing, onContentHeightChanged, disengage, hasReachedLiveEnd } = useStickToBottom(
     scrollContainerEl,
     pinToLiveEnd,
     active,
@@ -229,6 +239,8 @@ export function ChatMessageList({
   const fadeStyle = useScrollFade(scrollRef, 16);
 
   const pendingTaskId = pendingTask?.task_id ?? null;
+  const wakeupsBySourceTask = useWakeupsBySourceTask(wakeups);
+  const wakeupById = useMemo(() => new Map((wakeups ?? []).map((w) => [w.id, w])), [wakeups]);
 
   // The session's newest assistant turn — the only one whose quick actions can
   // be refreshed (regeneration resumes the newest provider state). Computed off
@@ -295,8 +307,31 @@ export function ChatMessageList({
     return items;
   }, [messages, hasLive, pendingTaskId]);
 
+  const revealSourceRef = annotations?.revealSourceRef;
+  useEffect(() => {
+    if (!revealSourceRef) return;
+    revealSourceRef.current = (messageId) => {
+      const index = renderItems.findIndex((item) => item.kind === "message" && item.message.id === messageId);
+      if (index < 0) return false;
+      disengage();
+      virtuosoRef.current?.scrollToIndex({ index, align: "center" });
+      return true;
+    };
+    return () => { revealSourceRef.current = null; };
+  }, [revealSourceRef, renderItems, disengage]);
+
   const firstIndex = renderItems.length > 0 ? firstItemIndex : 0;
-  const liveEndKey = renderItems[renderItems.length - 1]?.key ?? null;
+  const tailItem = renderItems[renderItems.length - 1];
+  const liveEndKey = tailItem?.key ?? null;
+  // Changes when the last row is new or a live reply streamed more output.
+  const tailKey = tailItem
+    ? `${tailItem.key}:${tailItem.kind === "live" ? (liveTaskMessages?.length ?? 0) : "persisted"}`
+    : null;
+  const jumpToLiveEnd = useJumpToLiveEnd(scrollContainerEl, pinToLiveEnd, {
+    enabled: active && hasReachedLiveEnd,
+    tailKey,
+    tailIsReply: tailItem?.kind === "live" || tailItem?.message.role === "assistant",
+  });
 
   const listContext: ChatListContext = {
     isFetchingOlderMessages,
@@ -327,6 +362,10 @@ export function ChatMessageList({
 
   return (
     <PreviewSequenceProvider items={previewSequence}>
+    {/* Positioning box for the floating "Jump to latest" button, so it stays
+     *  pinned above the composer instead of scrolling with the rows. */}
+    <div ref={annotations?.cardRef} {...annotations?.captureProps} className="relative flex min-h-0 flex-1 flex-col">
+    {annotations?.popup}
     <div
       ref={setScrollContainerRef}
       data-tab-scroll-root
@@ -393,6 +432,8 @@ export function ChatMessageList({
         itemContent={(_, item) => (
           <div
             className={cn(CHAT_COLUMN, "py-2")}
+            data-mc="chat-message"
+            data-role={item.kind === "live" ? "assistant" : item.message.role}
             {...(item.key === liveEndKey ? { [LIVE_END_ROW_ATTR]: "" } : {})}
           >
             <MessageBubble
@@ -405,12 +446,25 @@ export function ChatMessageList({
               latestAssistantMessageId={latestAssistantMessageId}
               quickActionsPendingMessageId={quickActionsPendingMessageId}
               starterCardsMessageId={starterCardsMessageId}
+              annotatable={!!annotations}
+              wakeup={item.kind === "message" && item.message.wakeup_id
+                ? wakeupById.get(item.message.wakeup_id)
+                : undefined}
+              createdWakeups={item.taskId ? wakeupsBySourceTask.get(item.taskId) : undefined}
             />
           </div>
         )}
       />
       </RichContentScrollRootProvider>
       )}
+    </div>
+    {jumpToLiveEnd.visible && (
+      <JumpToLiveEndButton
+        hasNewReply={jumpToLiveEnd.hasNewReply}
+        onClick={jumpToLiveEnd.jump}
+        className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+      />
+    )}
     </div>
     </PreviewSequenceProvider>
   );
@@ -470,6 +524,9 @@ const MessageBubble = memo(function MessageBubble({
   latestAssistantMessageId,
   quickActionsPendingMessageId,
   starterCardsMessageId,
+  annotatable,
+  wakeup,
+  createdWakeups,
 }: {
   item: ChatRenderItem;
   isPending: boolean;
@@ -480,28 +537,45 @@ const MessageBubble = memo(function MessageBubble({
   latestAssistantMessageId: string | null;
   quickActionsPendingMessageId: string | null;
   starterCardsMessageId: string | null;
+  annotatable: boolean;
+  /** The wakeup behind a wakeup turn's input row. */
+  wakeup?: ChatWakeup;
+  /** Wakeups this row's turn created. */
+  createdWakeups?: ChatWakeup[];
 }) {
   // The live row and the persisted assistant row both land here under one key,
   // and both render <AssistantMessage> — same component type, same position —
-  // so React reconciles rather than remounts at task completion.
+  // so React reconciles rather than remounts at task completion. The wakeup
+  // cards follow it as a sibling in both forms for the same reason.
   if (item.kind === "live") {
     return (
-      <AssistantMessage
-        taskId={item.taskId}
-        isPending={isPending}
-        transformContent={transformContent}
-        onQuickAction={onQuickAction}
-        quickActionsDisabled={quickActionsDisabled}
-      />
+      <>
+        <AssistantMessage
+          taskId={item.taskId}
+          isPending={isPending}
+          transformContent={transformContent}
+          onQuickAction={onQuickAction}
+          quickActionsDisabled={quickActionsDisabled}
+        />
+        {createdWakeups && <ChatWakeupCards wakeups={createdWakeups} />}
+      </>
     );
   }
 
   const { message } = item;
 
+  // A wakeup turn's input is the runtime's, not something the person wrote.
+  if (message.message_kind === "wakeup") {
+    return <ChatWakeupDivider message={message} wakeup={wakeup} />;
+  }
+
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="rounded-2xl bg-muted px-3.5 py-2 text-body max-w-[80%] break-words">
+        <div
+          data-mc="chat-bubble"
+          className="rounded-2xl bg-muted px-3.5 py-2 text-body max-w-[80%] break-words"
+        >
           {/* User messages are authored as markdown in ContentEditor, so they
            * render through the SAME RichContent as assistant replies and as
            * Issue/Comment — a Mermaid fence a user pastes is a diagram here
@@ -524,18 +598,22 @@ const MessageBubble = memo(function MessageBubble({
   }
 
   return (
-    <AssistantMessage
-      taskId={message.task_id ?? null}
-      message={message}
-      isPending={isPending}
-      transformContent={transformContent}
-      onQuickAction={onQuickAction}
-      quickActionsDisabled={quickActionsDisabled}
-      onRegenerateQuickActions={onRegenerateQuickActions}
-      canRegenerateQuickActions={message.id === latestAssistantMessageId}
-      quickActionsPending={quickActionsPendingMessageId === message.id}
-      showStarterCards={message.id === starterCardsMessageId}
-    />
+    <>
+      <AssistantMessage
+        taskId={message.task_id ?? null}
+        message={message}
+        isPending={isPending}
+        transformContent={transformContent}
+        onQuickAction={onQuickAction}
+        quickActionsDisabled={quickActionsDisabled}
+        onRegenerateQuickActions={onRegenerateQuickActions}
+        canRegenerateQuickActions={message.id === latestAssistantMessageId}
+        quickActionsPending={quickActionsPendingMessageId === message.id}
+        showStarterCards={message.id === starterCardsMessageId}
+        sourceId={annotatable && isAnnotatableChatMessage(message) ? message.id : undefined}
+      />
+      {createdWakeups && <ChatWakeupCards wakeups={createdWakeups} />}
+    </>
   );
 });
 
@@ -567,6 +645,7 @@ function AssistantMessage({
   canRegenerateQuickActions = false,
   quickActionsPending = false,
   showStarterCards = false,
+  sourceId,
 }: {
   taskId: string | null;
   message?: ChatMessage;
@@ -579,6 +658,8 @@ function AssistantMessage({
   quickActionsPending?: boolean;
   /** This turn is Mika's onboarding opening — render starter cards, not chips. */
   showStarterCards?: boolean;
+  /** Annotation source id for the settled answer text. */
+  sourceId?: string;
 }) {
   const canFetchTaskMessages = isTaskMessageTaskId(taskId);
 
@@ -613,6 +694,7 @@ function AssistantMessage({
         rawError={message.content}
         timeline={timeline}
         elapsedMs={message.elapsed_ms}
+        createdAt={message.created_at}
       />
     );
   }
@@ -639,18 +721,21 @@ function AssistantMessage({
           phase={phase}
           isStreaming={!message}
           settledContent={canonicalAnswer}
+          sourceId={sourceId}
         />
       )}
       {isNoResponse ? (
         <NoResponseNotice />
       ) : message && timeline.length === 0 ? (
-        <RichContent
-          content={settledContent ?? message.content}
-          attachments={message.attachments}
-          density="compact"
-          phase="settled"
-          className="leading-relaxed"
-        />
+        <div data-comment-content={sourceId}>
+          <RichContent
+            content={settledContent ?? message.content}
+            attachments={message.attachments}
+            density="compact"
+            phase="settled"
+            className="leading-relaxed"
+          />
+        </div>
       ) : null}
       {message && (
         <>
@@ -785,7 +870,7 @@ function QuickActions({
                   type="button"
                   variant={action.primary ? "brandSubtle" : "outline"}
                   size="sm"
-                  className="max-w-full rounded-full px-3"
+                  className="max-w-full px-3"
                   disabled={blocked}
                   onClick={() => void handleSelect(action)}
                 />
@@ -807,7 +892,7 @@ function QuickActions({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  className="shrink-0 rounded-full text-faint-foreground hover:text-foreground"
+                  className="shrink-0 text-faint-foreground hover:text-foreground"
                   disabled={blocked}
                   aria-label={regenerateLabel}
                   onClick={() => void handleRegenerate()}
@@ -830,7 +915,7 @@ function QuickActions({
 }
 
 // Light inline prefix label for the follow-up pill row — the row sits below
-// the reply footer ("Replied in Xs · Copy") behind a faint top border, so
+// the reply footer ("Replied in Xs · time · Copy") behind a faint top border, so
 // the pills read as a labelled next-steps strip, not part of the reply body.
 // shrink-0 keeps the label whole at the row start when narrow widths wrap
 // the pills.
@@ -843,7 +928,7 @@ function QuickActionsHeading() {
   );
 }
 
-// Pill-shaped placeholders shown between chat:done (which declared a pending
+// Chip-shaped placeholders shown between chat:done (which declared a pending
 // supplement) and chat:quick_actions. Widths are staggered so the row reads
 // as "buttons coming", not a loading bar. aria-hidden: nothing actionable to
 // announce yet.
@@ -856,9 +941,9 @@ function QuickActionsSkeleton() {
     <div className="mt-2 border-t border-border/40 pt-2 animate-in fade-in duration-300">
       <div className="flex flex-wrap items-center gap-2" aria-hidden="true">
         <QuickActionsHeading />
-        <Skeleton className="h-8 w-24 rounded-full" />
-        <Skeleton className="h-8 w-32 rounded-full" />
-        <Skeleton className="h-8 w-28 rounded-full" />
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-7 w-32" />
+        <Skeleton className="h-7 w-28" />
       </div>
     </div>
   );
@@ -876,8 +961,8 @@ function NoResponseNotice() {
   );
 }
 
-// Inline footer row beneath the assistant reply: "Replied in 38s · [Copy]".
-// Action icons live here (not as a hover-floating overlay) so they're
+// Inline footer row beneath the assistant reply: "Replied in 38s · 2:32 PM ·
+// [Copy]". Action icons live here (not as a hover-floating overlay) so they're
 // discoverable on first read and don't shift content. Buttons stay quiet
 // (muted) until hover. Copy is suppressed during streaming because the
 // final text is still being appended.
@@ -892,20 +977,25 @@ function MessageFooter({
   isPending: boolean;
   transformContent?: (content: string) => string;
 }) {
+  const locale = useLocale();
   // A no_response turn has nothing to copy, and its caption uses a neutral
   // "Finished in Xs" instead of "Replied in Xs" (MUL-4351).
   const isNoResponse = message.message_kind === "no_response";
   const copyContent = extractCopyText(message, timeline, transformContent);
   const showCopy = !isPending && !isNoResponse && copyContent.trim().length > 0;
-  if (message.elapsed_ms == null && !showCopy) return null;
+  const timeLabel = formatMessageTime(message.created_at, locale);
+  if (message.elapsed_ms == null && !showCopy && !timeLabel) return null;
   return (
     <div className="flex items-center gap-1.5">
-      {message.elapsed_ms != null && (
+      {message.elapsed_ms != null ? (
         <ElapsedCaption
           variant={isNoResponse ? "finished" : "replied"}
           elapsedMs={message.elapsed_ms}
+          timeLabel={timeLabel || undefined}
         />
-      )}
+      ) : timeLabel ? (
+        <div className="text-caption text-muted-foreground">{timeLabel}</div>
+      ) : null}
       {showCopy && (
         <MessageCopyButton content={copyContent} />
       )}
@@ -948,18 +1038,21 @@ function MessageCopyButton({
   );
 }
 
-// Persisted "Replied in 38s" / "Failed after 12s" line under the assistant
-// bubble. Reads `elapsed_ms` straight off the chat_message — server computes
-// it once at task completion, so this caption is identical across reloads
-// and devices. Skipped silently when null (legacy messages predating
-// migration 063 + user messages).
+// Persisted "Replied in 38s · 2:32 PM" / "Failed after 12s · 2:32 PM" line
+// under the assistant bubble. Reads `elapsed_ms` straight off the chat_message
+// — server computes it once at task completion, so this caption is identical
+// across reloads and devices; `timeLabel` is the pre-formatted wall-clock time
+// derived from `created_at`. Skipped silently when null (legacy messages
+// predating migration 063 + user messages).
 function ElapsedCaption({
   variant,
   elapsedMs,
+  timeLabel,
   className,
 }: {
   variant: "replied" | "failed" | "finished";
   elapsedMs: number;
+  timeLabel?: string;
   className?: string;
 }) {
   const { t } = useT("chat");
@@ -972,7 +1065,7 @@ function ElapsedCaption({
         : t(($) => $.message_list.failed_after, { elapsed });
   return (
     <div className={cn("text-caption text-muted-foreground", className)}>
-      {text}
+      {timeLabel ? `${text} · ${timeLabel}` : text}
     </div>
   );
 }
@@ -982,13 +1075,17 @@ function FailureBubble({
   rawError,
   timeline,
   elapsedMs,
+  createdAt,
 }: {
   reason: string;
   rawError: string;
   timeline: ChatTimelineItem[];
   elapsedMs?: number | null;
+  createdAt?: string;
 }) {
   const { t } = useT("chat");
+  const locale = useLocale();
+  const timeLabel = createdAt ? formatMessageTime(createdAt, locale) : "";
   const [open, setOpen] = useState(false);
   // Chat gets its own friendly, reassuring copy per failure reason — plain
   // language + a "try again" nudge — instead of the terse developer labels
@@ -1021,6 +1118,7 @@ function FailureBubble({
     skill_bundle_unavailable: t(($) => $.message_list.failure.skill_bundle_unavailable),
     runtime_cli_timeout: t(($) => $.message_list.failure.runtime_cli_timeout),
     environment_prepare_failed: t(($) => $.message_list.failure.environment_prepare_failed),
+    local_directory_missing: t(($) => $.message_list.failure.local_directory_missing),
     "agent_error.provider_network": t(($) => $.message_list.failure.provider_network),
     "agent_error.provider_auth_or_access": t(($) => $.message_list.failure.provider_auth_or_access),
     "agent_error.provider_quota_limit": t(($) => $.message_list.failure.provider_quota_limit),
@@ -1071,9 +1169,13 @@ function FailureBubble({
         </div>
       </div>
       {timeline.length > 0 && <TimelineView items={timeline} />}
-      {elapsedMs != null && (
-        <ElapsedCaption variant="failed" elapsedMs={elapsedMs} />
-      )}
+      {elapsedMs != null || timeLabel ? (
+        elapsedMs != null ? (
+          <ElapsedCaption variant="failed" elapsedMs={elapsedMs} timeLabel={timeLabel || undefined} />
+        ) : (
+          <div className="text-caption text-muted-foreground">{timeLabel}</div>
+        )
+      ) : null}
     </div>
   );
 }
@@ -1097,12 +1199,14 @@ function TimelineView({
   attachments,
   phase = "settled",
   settledContent,
+  sourceId,
 }: {
   items: ChatTimelineItem[];
   isStreaming?: boolean;
   attachments?: import("@multica/core/types").Attachment[];
   phase?: "streaming" | "settled";
   settledContent?: string;
+  sourceId?: string;
 }) {
   if (phase === "settled" && settledContent !== undefined) {
     const { preface, middle } = splitTimeline(items);
@@ -1119,14 +1223,15 @@ function TimelineView({
             stepCount={middle.length}
           />
         )}
-        <RichContent
-          key="answer"
-          content={settledContent}
-          attachments={attachments}
-          density="compact"
-          phase="settled"
-          className="leading-relaxed"
-        />
+        <div key="answer" data-comment-content={sourceId}>
+          <RichContent
+            content={settledContent}
+            attachments={attachments}
+            density="compact"
+            phase="settled"
+            className="leading-relaxed"
+          />
+        </div>
       </>
     );
   }
@@ -1155,14 +1260,16 @@ function TimelineView({
         />
       )}
       {final.length > 0 && (
-        <RichContent
-          key="answer"
-          content={final.map((t) => t.content ?? "").join("")}
-          attachments={attachments}
-          density="compact"
-          phase={phase}
-          className="leading-relaxed"
-        />
+        // Same element type as the settled answer so the handoff keeps it mounted.
+        <div key="answer">
+          <RichContent
+            content={final.map((t) => t.content ?? "").join("")}
+            attachments={attachments}
+            density="compact"
+            phase={phase}
+            className="leading-relaxed"
+          />
+        </div>
       )}
     </>
   );
@@ -1273,6 +1380,7 @@ function ToolCallRow({ item }: { item: ChatTimelineItem }) {
       t(($) => $.transcript.patch_summary_more, { path, extra: extraCount }),
   });
   const hasInput = item.input && Object.keys(item.input).length > 0;
+  const command = useMemo(() => readCommandInput(item.input), [item.input]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -1289,9 +1397,19 @@ function ToolCallRow({ item }: { item: ChatTimelineItem }) {
       </CollapsibleTrigger>
       {hasInput && (
         <CollapsibleContent>
-          <pre className="ml-[18px] mt-0.5 max-h-32 overflow-auto rounded-xs bg-muted/50 p-2 text-caption text-muted-foreground whitespace-pre-wrap break-all">
-            {JSON.stringify(item.input, null, 2)}
-          </pre>
+          {command ? (
+            // Same capped box as every other input and result in the panel, so a
+            // long script scrolls in place instead of stretching the chat. The
+            // command reads in the foreground colour, its arguments stay muted.
+            <pre className="ml-[18px] mt-0.5 max-h-32 overflow-auto rounded-xs bg-muted/50 p-2 text-caption text-muted-foreground whitespace-pre-wrap wrap-anywhere">
+              <div className="text-foreground">{command.command}</div>
+              {command.params && <div className="mt-1.5">{command.params}</div>}
+            </pre>
+          ) : (
+            <pre className="ml-[18px] mt-0.5 max-h-32 overflow-auto rounded-xs bg-muted/50 p-2 text-caption text-muted-foreground whitespace-pre-wrap break-all">
+              {JSON.stringify(item.input, null, 2)}
+            </pre>
+          )}
         </CollapsibleContent>
       )}
     </Collapsible>
