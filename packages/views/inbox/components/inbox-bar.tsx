@@ -1,10 +1,13 @@
 "use client";
 
 import type { ComponentProps, ReactNode } from "react";
-import { Archive } from "@multica/ui/icons";
+import { motion } from "motion/react";
+import { useReducedMotion } from "@multica/core/appearance";
+import { Archive, ArchiveRestore } from "@multica/ui/icons";
 import { Button } from "@multica/ui/components/ui/button";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { TooltipHint } from "@multica/ui/components/common/tooltip-hint";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { cn } from "@multica/ui/lib/utils";
 import type { ShortcutActionId } from "@multica/core/shortcuts";
 import type { InboxItem } from "@multica/core/types";
@@ -15,7 +18,7 @@ import { InboxActorAvatar, InboxActorLine } from "./inbox-actor";
 import { useTimeAgo } from "./inbox-list-item";
 
 /**
- * The bar under the header of an issue opened from the Inbox: the one place
+ * The bar under the header of an issue the Inbox page has open: the one place
  * its notification lives, whatever state that is in. Open, it says why the
  * issue is here and offers what resolves it, the issue's own actions first,
  * then the notification's. Settled (archived, snoozed), it says so, with the
@@ -26,23 +29,32 @@ import { useTimeAgo } from "./inbox-list-item";
  * first, then the notification's actions, the time, and the issue's values.
  */
 export function InboxBar({ settled = false, children }: { settled?: boolean; children: ReactNode }) {
+  const reduceMotion = useReducedMotion();
   return (
     <div
       role={settled ? "status" : undefined}
       data-inbox-bar={settled ? "settled" : "open"}
       className={cn(
-        "@container/inbox-bar relative flex h-10 shrink-0 items-center gap-1 border-b",
+        "@container/inbox-bar relative flex h-10 shrink-0 items-center border-b transition-colors duration-150 motion-reduce:transition-none",
         settled && "bg-muted/40",
         PAGE_GUTTER,
       )}
     >
-      {children}
+      <motion.div
+        key={settled ? "settled" : "open"}
+        initial={reduceMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: reduceMotion ? 0 : UI_MOTION_DURATION.fast, ease: UI_EASE_OUT }}
+        className="flex min-w-0 flex-1 items-center gap-1"
+      >
+        {children}
+      </motion.div>
     </div>
   );
 }
 
 /**
- * Reserves the 40px InboxBar slot while a cold issue opened from the Inbox
+ * Reserves the 40px InboxBar slot while a cold issue the Inbox page opened
  * loads, so the reading column below never shifts 40px when the issue lands.
  * When the Inbox list already holds the notification row, renders its real
  * actor and reason immediately.
@@ -62,12 +74,6 @@ export function InboxBarSkeleton({ item }: { item?: InboxItem | null }) {
         <Skeleton className="h-6 w-14 rounded-md" />
         <Skeleton className="h-6 w-14 rounded-md" />
       </div>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-muted"
-      >
-        <span className="block h-full w-2/3 animate-pulse bg-brand/70" />
-      </span>
     </InboxBar>
   );
 }
@@ -117,11 +123,11 @@ function InboxBarReason({ item }: { item: InboxItem }) {
 /** What happened to a settled notification, before the bar's actions. */
 export function InboxBarStatus({ icon, label }: { icon: ReactNode; label: ReactNode }) {
   return (
-    <span className="mr-1 flex min-w-0 flex-1 items-center gap-1 text-caption text-muted-foreground">
+    <span className="mr-1 flex min-w-0 flex-1 items-center gap-1.5 text-caption text-muted-foreground">
       <span aria-hidden className="flex shrink-0 [&_svg]:size-3.5">
         {icon}
       </span>
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 truncate">{label}</span>
     </span>
   );
 }
@@ -175,5 +181,21 @@ export function InboxArchiveButton({ onClick }: { onClick: () => void }) {
       shortcut="archiveInboxItem"
       onClick={onClick}
     />
+  );
+}
+
+/** An archived notification's bar: why it was in the Inbox, and the way back into it. */
+export function InboxArchivedBar({ item, onRestore }: { item: InboxItem; onRestore: () => void }) {
+  const { t } = useT("inbox");
+  return (
+    <InboxBar settled>
+      <InboxBarReason item={item} />
+      <InboxBarButton
+        icon={<ArchiveRestore />}
+        label={t(($) => $.detail.restore)}
+        shortcut="archiveInboxItem"
+        onClick={onRestore}
+      />
+    </InboxBar>
   );
 }

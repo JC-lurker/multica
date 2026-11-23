@@ -55,7 +55,7 @@ Docs-only changes can use link/reference checks and `git diff --check`; state th
 
 - TanStack Query owns API/server data. Zustand owns client state such as filters, drafts, modals, and tab layout; persist only durable preferences/drafts/layout, not server data or ephemeral UI state.
 - Web/desktop shared stores live in `packages/core/`. Desktop platform stores remain in desktop; mobile stores remain in mobile. Do not define stores in `packages/views/`.
-- Desktop tabs in a window share one set of Zustand stores and mount one at a time; a web tab gets its own. State describing how the current page was reached (source list, selection, highlight) must not assume one page: a click that opens a new tab leaves the current page's record intact and still records the target tab's own (`sidebarTabIssuesByWorkspace` in `packages/core/inbox/selection-store.ts`).
+- Desktop tabs in a window share one set of Zustand stores and mount one at a time; a web tab gets its own. State describing how the current page was reached (source list, selection, highlight) must not assume one page: a click that opens a new tab leaves the current page's record intact and still records the target tab's own.
 - On web/desktop, workspace identity is route-driven; platform mirrors exist only for request headers, storage namespaces, and reconnects. React Context is for platform plumbing, not a second server-state store.
 - Among stores, only auth/workspace stores may call `api.*` directly; other server interactions belong in queries/mutations.
 - Workspace-scoped query keys include `wsId`; account-level keys remain account-scoped. Hooks needing workspace context accept `wsId` unless guaranteed to run under its provider.
@@ -119,6 +119,7 @@ Workspace-scoped queries filter by `workspace_id`; membership gates access and `
 ## Web/Desktop UI Rules
 
 - For Button and Dialog usage, read `packages/ui/docs/button.md` and `packages/ui/docs/dialog.md`.
+- Before building or reviewing an interaction that changes layout (overlays, expand/collapse, list rows, drag and drop, content switches, selection indicators, value feedback), read `packages/ui/docs/motion.md`: tokens, reduced motion, where not to animate, and the shared primitives. Such a PR attaches a GIF and the frame-sampling results from `scripts/motion/capture.mjs`.
 - Prefer existing shadcn/Base UI primitives. Add components with `pnpm ui:add <component>`.
 - For `pnpm ui:add @reui/<name>`, decline overwrite prompts. Keep `REUI_LICENSE_KEY` in the environment, never in repo files. Adapt vendored primitives into `packages/ui/components/ui/` and compositions into `packages/views/`.
 - Import icons from `@multica/ui/icons`; no icon library is installed. If the icon you need is missing, draw it by following `.agents/skills/multica-icons/SKILL.md`. Do not substitute an inline SVG or an emoji. Rewrite icon imports in `ui:add` output before committing. Exception: proportional-width optical keycap glyphs live exclusively in `KBD_GLYPHS` inside `packages/ui/components/ui/kbd.tsx` and are only for `<Kbd>`.

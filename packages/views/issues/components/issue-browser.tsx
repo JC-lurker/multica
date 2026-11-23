@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,8 +18,7 @@ import {
   Trash2,
   Undo2,
   X,
-} from "lucide-react";
-import { toast } from "sonner";
+} from "@multica/ui/icons";
 import { api } from "@multica/core/api";
 import { attachmentToDraftUpload } from "@multica/core/drafts/draft-upload";
 import { useCommentDraftStore } from "@multica/core/issues/stores";
@@ -500,6 +500,7 @@ function IssueBrowserPanelBody({ issueId }: { issueId: string }) {
             aria-label={t(($) => $.browser.color)}
             aria-pressed={color === c}
             className={cn(
+              // eslint-disable-next-line no-restricted-syntax -- color swatch
               "size-4 rounded-full border",
               color === c && "ring-2 ring-ring ring-offset-1 ring-offset-background",
             )}

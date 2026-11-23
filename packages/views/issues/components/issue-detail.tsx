@@ -11,7 +11,9 @@ import { IssueAppRequests } from "../../common/app-requests";
 import { useStatusLabel } from "../utils/status-label";
 import { formatActivity, type ActivityT } from "./activity-text";
 import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
-import { useState, useEffect, useCallback, useMemo, useRef, useId, Fragment, type ComponentProps, type ReactNode } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, useId, Fragment, type ComponentProps, type ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { UI_EASE_IN, UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { Virtuoso, type ListRange, type VirtuosoHandle } from "react-virtuoso";
 import { useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { AppLink, useBackOrReplace } from "../../navigation";
@@ -36,6 +38,7 @@ import {
   Unlink,
   Users,
   ArrowDown,
+  ArrowUpRight,
 } from "@multica/ui/icons";
 import { BreadcrumbHeader, type BreadcrumbSegment } from "../../layout/breadcrumb-header";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
@@ -77,10 +80,8 @@ import { ActorAvatar } from "../../common/actor-avatar";
 import { MemberProfileCard } from "../../members/member-profile-card";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@multica/ui/components/ui/hover-card";
 import { ActionShortcutKeycaps } from "../../common/shortcut-keycaps";
-import { UnsubscribeArchiveButton } from "../../inbox/components/unsubscribe-archive-button";
-import { InboxArchiveButton, InboxBarSkeleton, InboxOpenBar } from "../../inbox/components/inbox-bar";
+import { InboxBarSkeleton } from "../../inbox/components/inbox-bar";
 import { InboxIssueActions } from "./inbox-issue-actions";
-import type { InboxUnsubscribeScope } from "@multica/core/inbox/mutations";
 import { useInboxSelectionStore, type InboxTransitionDirection } from "@multica/core/inbox/selection-store";
 import { useReducedMotion } from "@multica/core/appearance";
 import { PropRow } from "../../common/prop-row";
@@ -105,14 +106,14 @@ import { AssigneePicker } from "./pickers/assignee-picker";
 import { LabelPicker } from "./pickers/label-picker";
 import { CustomPropertyValueEditor, CustomPropertyValueDisplay } from "./pickers/custom-property-picker";
 import { Switch } from "@multica/ui/components/ui/switch";
-import { IssueActionsDropdown, useIssuePageMenu, useIssueActions, useArchivedInboxItemId, IssueActionsContextMenu, IssueContextMenuProvider, IssueInboxBar } from "../actions";
+import { IssueActionsDropdown, useIssuePageMenu, useIssueActions, useArchivedInboxItemId, IssueActionsContextMenu, IssueContextMenuProvider } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { SubIssuesAgentWorkingChip } from "./sub-issues-agent-working-chip";
 import { IssueProjectPicker } from "../../projects/components/issue-project-picker";
 import { IssuePropertyPills } from "./issue-property-pills";
 import { LocalDirectoryHint } from "../../projects/components/local-directory-hint";
-import { useNewRunIds } from "./use-run-comment-motion";
+import { revealElement, useNewRunIds } from "./use-run-comment-motion";
 import { AgentRunComment, CommentCard } from "./comment-card";
 import { EMPTY_COMMENT_RUNS, buildCommentRunView, orderTimelineWithRuns, type CommentRun } from "./comment-runs";
 import { issueTasksOptions } from "@multica/core/issues/queries";
@@ -213,7 +214,7 @@ import { useShowInSidebar } from "../../layout/panels/show-in-sidebar";
 import { ProgressRing } from "./progress-ring";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { MetadataSection } from "./metadata-section";
-import { IssueSidebarSectionHeader, IssueSidebarPropertyGrid } from "./issue-sidebar-section";
+import { IssueSidebarCollapsible, IssueSidebarSectionHeader, IssueSidebarPropertyGrid } from "./issue-sidebar-section";
 import { IssueSidebarSections, letSidebarSettingsDragKeysThrough } from "./issue-sidebar-settings";
 import { useT } from "../../i18n";
 import { useIssueDetailScrollRestore } from "../hooks/use-issue-detail-scroll-restore";
@@ -517,27 +518,49 @@ function JumpToLatestButton({
   /** New comments arrived while the reader was away; `label` counts them. */
   hasNew?: boolean;
 }) {
+  const reduceMotion = useReducedMotion();
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={onClick}
-      className="absolute bottom-full left-1/2 mb-6 -translate-x-1/2 bg-background shadow-md dark:bg-background dark:hover:bg-muted"
+    <motion.div
+      initial={reduceMotion ? false : { opacity: 0, y: 8, scale: 0.96 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        transition: { duration: reduceMotion ? 0 : UI_MOTION_DURATION.fast, ease: UI_EASE_OUT },
+      }}
+      exit={
+        reduceMotion
+          ? { opacity: 0, transition: { duration: 0 } }
+          : {
+              opacity: 0,
+              y: 6,
+              scale: 0.96,
+              transition: { duration: UI_MOTION_DURATION.micro, ease: UI_EASE_IN },
+            }
+      }
+      className="pointer-events-none absolute inset-x-0 bottom-full mb-6 flex justify-center"
     >
-      {hasNew ? (
-        <>
-          <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />
-          {label}
-          <ArrowDown />
-        </>
-      ) : (
-        <>
-          <ArrowDown />
-          {label}
-        </>
-      )}
-    </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onClick}
+        className="pointer-events-auto bg-background shadow-md dark:bg-background dark:hover:bg-muted"
+      >
+        {hasNew ? (
+          <>
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />
+            {label}
+            <ArrowDown />
+          </>
+        ) : (
+          <>
+            <ArrowDown />
+            {label}
+          </>
+        )}
+      </Button>
+    </motion.div>
   );
 }
 
@@ -585,6 +608,28 @@ function flattenGroups(
     }
   }
   return out;
+}
+
+function ResolvedToggleReveal({
+  id,
+  domId,
+  toggledRef,
+  className,
+  children,
+}: {
+  id: string;
+  domId?: string;
+  toggledRef: React.RefObject<Set<string>>;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!toggledRef.current.delete(id)) return;
+    const anim = revealElement(ref.current, UI_MOTION_DURATION.fast * 1000, -3);
+    return () => { anim?.cancel(); };
+  }, [id, toggledRef]);
+  return <div ref={ref} id={domId} className={className}>{children}</div>;
 }
 
 function TimelineSkeleton() {
@@ -661,23 +706,8 @@ function ActivityBlock({
   requesterName?: string;
 }) {
   const wakeupText = useWakeupText();
-  if (!expanded) {
-    const count = entries.length;
-    return (
-      <div className="pb-3 px-4 max-md:px-3">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex items-center gap-1.5 text-label text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronRight className="h-3 w-3 shrink-0" />
-          <span>{t(($) => $.activity.activity_count, { count })}</span>
-        </button>
-      </div>
-    );
-  }
   const hiddenOlderCount =
-    truncateOlder && !showOlder && entries.length > LAST_ACTIVITY_BLOCK_VISIBLE_LIMIT
+    expanded && truncateOlder && !showOlder && entries.length > LAST_ACTIVITY_BLOCK_VISIBLE_LIMIT
       ? entries.length - LAST_ACTIVITY_BLOCK_VISIBLE_LIMIT
       : 0;
   const visibleEntries =
@@ -688,20 +718,25 @@ function ActivityBlock({
   // looked like nested folds and added visual noise without value. Once the
   // user explicitly reveals older entries, the header reappears so they can
   // fold the whole block back to a single count line.
-  const showHeader = hiddenOlderCount === 0;
+  const showHeader = !expanded || hiddenOlderCount === 0;
   return (
-    <div className="pb-3 px-4 max-md:px-3 flex flex-col gap-3">
+    <div className={cn("pb-3 px-4 max-md:px-3", expanded && "flex flex-col gap-3")}>
       {showHeader && (
         <button
           type="button"
           onClick={onToggle}
           className="flex items-center gap-1.5 text-label text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ChevronDown className="h-3 w-3 shrink-0" />
+          <ChevronRight
+            className={cn(
+              "h-3 w-3 shrink-0 transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
+              expanded && "rotate-90",
+            )}
+          />
           <span>{t(($) => $.activity.activity_count, { count: entries.length })}</span>
         </button>
       )}
-      {hiddenOlderCount > 0 && (
+      {expanded && hiddenOlderCount > 0 && (
         <button
           type="button"
           onClick={onToggleShowOlder}
@@ -711,7 +746,7 @@ function ActivityBlock({
           <span>{t(($) => $.activity.show_more_activities, { count: hiddenOlderCount })}</span>
         </button>
       )}
-      {visibleEntries.map((entry) => {
+      {expanded && visibleEntries.map((entry) => {
         const details = (entry.details ?? {}) as Record<string, string>;
         // Duplicate rows replace the status rows of the same write, so they
         // carry the status glyph those rows would have had.
@@ -1113,21 +1148,28 @@ function SubIssueDisplayPopover({
 
 // Props
 
+/** The Inbox page, hosting this detail for the notification it has open. */
+export interface IssueDetailInboxHost {
+  /**
+   * The breadcrumb's segment in place of the issue's container: back to the
+   * Inbox's list. Left out where the host's own way back already says so.
+   */
+  crumb?: BreadcrumbSegment;
+  /** The notification's bar under the header, given the issue's own actions to keep in it. */
+  bar: (issueActions: ReactNode) => ReactNode;
+  /** The open notification, so a cold load shows its bar and title at once. */
+  item?: InboxItem;
+}
+
 interface IssueDetailProps {
   issueId: string;
   onDelete?: () => void;
   /**
-   * The Inbox page's Archive in its bar: archives the open notification. The
-   * Inbox page owns the bar then; without it, the Work panel's Inbox does.
+   * Set on the Inbox page: the breadcrumb starts at the Inbox, the
+   * notification's bar sits under the header, and the header offers the
+   * issue's own page.
    */
-  onArchive?: () => void;
-  /**
-   * The Inbox's "unsubscribe & archive", shown next to Archive on issues that
-   * are not the viewer's own. Only read alongside `onArchive`.
-   */
-  onUnsubscribeArchive?: (scope: InboxUnsubscribeScope) => void;
-  /** The Inbox page's open notification, whose bar says why it is here. Only read alongside `onArchive`. */
-  inboxItem?: InboxItem;
+  inbox?: IssueDetailInboxHost;
   defaultSidebarOpen?: boolean;
   layoutId?: string;
   /** When set, the issue detail will auto-scroll to this comment and briefly highlight it. */
@@ -1166,12 +1208,6 @@ interface IssueDetailProps {
   variant?: "page" | "peek";
   /** Peek only: host controls at the end of the header (open full page, close). */
   trailingActions?: ReactNode;
-  /**
-   * A bar the host shows under the header in place of the Inbox bar, above the
-   * scrolling body, given the issue's own actions to keep in it. Returning
-   * nothing shows the Inbox bar.
-   */
-  notice?: (issueActions: ReactNode) => ReactNode;
   /**
    * Read the viewer's inbox notifications on this issue while it is on screen
    * (MUL-8588). The inbox turns this off for the issue it has open: it reads
@@ -1420,7 +1456,7 @@ export function IssueDetailSkeleton({
 
 // IssueDetail
 
-export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive, inboxItem, defaultSidebarOpen = true, layoutId = ISSUE_DETAIL_LAYOUT_ID, highlightCommentId: linkedCommentId, highlightRequestToken: linkedRequestToken, highlightRequestPending = false, onHighlightLanded, highlightAppRequestId, leadingAction, variant = "page", trailingActions, notice, readsInbox = true, skipInitialRefetch = false, openDeliverable, onDeliverableLinkDone }: IssueDetailProps) {
+export function IssueDetail({ issueId, onDelete, inbox, defaultSidebarOpen = true, layoutId = ISSUE_DETAIL_LAYOUT_ID, highlightCommentId: linkedCommentId, highlightRequestToken: linkedRequestToken, highlightRequestPending = false, onHighlightLanded, highlightAppRequestId, leadingAction, variant = "page", trailingActions, readsInbox = true, skipInitialRefetch = false, openDeliverable, onDeliverableLinkDone }: IssueDetailProps) {
   const isPeek = variant === "peek";
   const { t } = useT("issues");
   const { t: tCommon } = useT("common");
@@ -1544,9 +1580,11 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   const composerRef = useRef<HTMLDivElement | null>(null);
   // Pull-based scroll restoration (MUL-4741): the platform serves the offset
   // captured when this route was last left. The ref-attach assignment covers
-  // the flat render modes (real heights at commit); the virtualized browsing
-  // mode feeds the offset into Virtuoso's initialScrollTop below so the
-  // list's first render already materializes the rows around it.
+  // content that is already there; useIssueDetailScrollRestore applies it
+  // again once the timeline has loaded. The timeline's Virtuoso must not get
+  // it as `initialScrollTop`: with `customScrollParent` Virtuoso counts that
+  // from the list's top, which sits below the description, so the page came
+  // back a description's height further down.
   //
   // The container key carries the issue id: on the issue route that is
   // redundant with the route scoping, but in the inbox the selection lives
@@ -1557,7 +1595,6 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   // must neither restore the full page's offset nor leave one behind for it.
   const scrollContainerKey = `${isPeek ? "peek" : "main"}:${id}`;
   const restoredScrollTop = useRestoredScrollOffset(scrollContainerKey);
-  const restoreScrollRef = useRestoredScrollRef(scrollContainerKey);
   // Whether this issue's comment-highlight deep link already landed here
   // (survives the tab's unmount, unlike didHighlightRef below): a remount
   // that restores the view must not re-run the jump.
@@ -1585,8 +1622,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   // task. The hold is bounded in case the landing never runs (a target that
   // is gone). `null`: the full overscan.
   //
-  // An Inbox click marks its landing pending before the page mounts; the
-  // comment it names arrives a render later on web, with the URL's fragment.
+  // An Inbox click marks its landing pending before the page mounts.
   const landingAtMount = highlightRequestPending || (!!highlightCommentId && !highlightConsumed);
   const [landingOverscanStep, setLandingOverscanStep] = useState<number | null>(
     () => (landingAtMount ? 0 : null),
@@ -1600,9 +1636,6 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   const [landingChromeHeld, setLandingChromeHeld] = useState(() => landingAtMount);
   const releaseLandingChrome = useCallback(() => setLandingChromeHeld(false), []);
   const reduceMotion = useReducedMotion();
-  const fromSidebarInbox = useInboxSelectionStore(
-    (s) => !!wsId && s.sidebarIssueByWorkspace[wsId] === id,
-  );
   const pendingInboxTransition = useInboxSelectionStore((s) =>
     wsId ? s.transitionByWorkspace[wsId] : undefined,
   );
@@ -1659,16 +1692,6 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   onHighlightLandedRef.current = onHighlightLanded;
   const writeViewState = useViewStateWriter();
   const rightSidebarShortcutTargetRef = useRef<HTMLDivElement | null>(null);
-  const attachScrollContainer = useCallback(
-    (el: HTMLDivElement | null) => {
-      // The peek has no sidebar, so it must not claim the toggle shortcut.
-      rightSidebarShortcutTargetRef.current = isPeek ? null : el;
-      setScrollContainerEl(el);
-      setScrollContainerWidth(el?.clientWidth ?? 0);
-      restoreScrollRef(el);
-    },
-    [isPeek, restoreScrollRef],
-  );
   const [pendingPostedCommentId, setPendingPostedCommentId] = useState<string | null>(null);
   const scrollToTimelineBottom = useCallback((commentId: string) => {
     setPendingPostedCommentId(commentId);
@@ -1687,7 +1710,11 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   // all-comments commands can drive it from outside this page.
   const expandedResolved = useResolvedExpandStore(selectExpandedResolved(id));
   const setResolvedExpanded = useResolvedExpandStore((s) => s.setExpanded);
+  // One-shot WAAPI reveal for user-clicked resolved thread expand/collapse only
+  // (Virtuoso scroll remounts never read a populated id).
+  const recentResolvedToggleRef = useRef<Set<string>>(new Set());
   const toggleResolvedExpand = useCallback((commentId: string, expand: boolean) => {
+    recentResolvedToggleRef.current.add(commentId);
     setResolvedExpanded(id, commentId, expand);
     // On collapse the thread shrinks and the viewport would jump to whatever was
     // below; pull the just-folded thread back into view with the smallest
@@ -2240,6 +2267,23 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
     ready: timelineReady,
     skipRestore: isPeek || pendingHighlight,
   });
+  // When a deep-link landing or semantic reading anchor owns scroll, disable
+  // pixel scroll restoration so its settle-window hold cannot yank the scroll
+  // container back to a stale pixel offset while virtualized rows measure.
+  const ownsTimelineScroll = isPeek || landingAtMount || pendingHighlight || !!readingAnchor;
+  const restoreScrollRef = useRestoredScrollRef(scrollContainerKey, {
+    disabled: ownsTimelineScroll,
+  });
+  const attachScrollContainer = useCallback(
+    (el: HTMLDivElement | null) => {
+      // The peek has no sidebar, so it must not claim the toggle shortcut.
+      rightSidebarShortcutTargetRef.current = isPeek ? null : el;
+      setScrollContainerEl(el);
+      setScrollContainerWidth(el?.clientWidth ?? 0);
+      restoreScrollRef(el);
+    },
+    [isPeek, restoreScrollRef],
+  );
   useEffect(() => {
     const container = scrollContainerEl;
     if (!readingAnchor || !container || issueLoading || timelineLoading || commentTasksLoading) return;
@@ -3027,8 +3071,8 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   // Called before the `if (!issue)` early return so hook order stays stable.
   const actions = useIssueActions(issue);
   const handleUpdateField = actions.updateField;
-  // The inbox passes `onArchive` and owns archive and restore there.
-  const archivedInboxItemId = useArchivedInboxItemId(id, !onArchive);
+  // The Inbox page owns archive and restore for the notification it has open.
+  const archivedInboxItemId = useArchivedInboxItemId(id, !inbox);
   const pageMenu = useIssuePageMenu();
 
   // Labels live in their own query (not on the issue body) — fetch the count
@@ -3203,8 +3247,8 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
         trailing={trailingActions}
         sidebar={!isPeek && desktopSidebarOpen}
         layoutId={layoutId}
-        showInboxBar={!isPeek && (!!inboxItem || fromSidebarInbox)}
-        inboxItem={isPeek ? undefined : inboxItem}
+        showInboxBar={!!inbox}
+        inboxItem={inbox?.item}
       />
     );
   }
@@ -3369,30 +3413,28 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   const guestProperties = (
     <div>
       <IssueSidebarSectionHeader title={t(($) => $.detail.section_properties)} open={propertiesOpen} onOpenChange={setPropertiesOpen} />
-      {propertiesOpen && (
-        <>
-          <IssueSidebarPropertyGrid>
-            <PropRow interactive={false} label={t(($) => $.detail.prop_status)}>
-              {locked(<StatusPicker status={issue.status} onUpdate={handleUpdateField} align="start" projectId={issue.project_id} issue={issue} />)}
+      <IssueSidebarCollapsible open={propertiesOpen}>
+        <IssueSidebarPropertyGrid>
+          <PropRow interactive={false} label={t(($) => $.detail.prop_status)}>
+            {locked(<StatusPicker status={issue.status} onUpdate={handleUpdateField} align="start" projectId={issue.project_id} issue={issue} />)}
+          </PropRow>
+          <PropRow interactive={false} label={t(($) => $.detail.prop_assignee)}>
+            {locked(<AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} onUpdate={handleUpdateField} align="start" />)}
+          </PropRow>
+          <PropRow interactive={false} label={t(($) => $.detail.prop_priority)}>
+            {locked(<PriorityPicker priority={issue.priority} onUpdate={handleUpdateField} align="start" />)}
+          </PropRow>
+          <PropRow interactive={false} label={t(($) => $.detail.prop_project)}>
+            {locked(<IssueProjectPicker projectId={issue.project_id} onUpdate={handleUpdateField} issue={issue} />)}
+          </PropRow>
+          {attachedLabels.length > 0 && (
+            <PropRow interactive={false} label={t(($) => $.detail.prop_labels)}>
+              {locked(<LabelPicker issueId={issue.id} align="start" />)}
             </PropRow>
-            <PropRow interactive={false} label={t(($) => $.detail.prop_assignee)}>
-              {locked(<AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} onUpdate={handleUpdateField} align="start" />)}
-            </PropRow>
-            <PropRow interactive={false} label={t(($) => $.detail.prop_priority)}>
-              {locked(<PriorityPicker priority={issue.priority} onUpdate={handleUpdateField} align="start" />)}
-            </PropRow>
-            <PropRow interactive={false} label={t(($) => $.detail.prop_project)}>
-              {locked(<IssueProjectPicker projectId={issue.project_id} onUpdate={handleUpdateField} issue={issue} />)}
-            </PropRow>
-            {attachedLabels.length > 0 && (
-              <PropRow interactive={false} label={t(($) => $.detail.prop_labels)}>
-                {locked(<LabelPicker issueId={issue.id} align="start" />)}
-              </PropRow>
-            )}
-          </IssueSidebarPropertyGrid>
-          <p className="px-4 pt-2 text-caption text-muted-foreground">{t(($) => $.detail.guest_readonly_note)}</p>
-        </>
-      )}
+          )}
+        </IssueSidebarPropertyGrid>
+        <p className="px-4 pt-2 text-caption text-muted-foreground">{t(($) => $.detail.guest_readonly_note)}</p>
+      </IssueSidebarCollapsible>
     </div>
   );
 
@@ -3400,7 +3442,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
     properties: guest ? guestProperties : (
       <div>
         <IssueSidebarSectionHeader title={t(($) => $.detail.section_properties)} open={propertiesOpen} onOpenChange={setPropertiesOpen}  />
-        {propertiesOpen && <IssueSidebarPropertyGrid>
+        <IssueSidebarCollapsible open={propertiesOpen}><IssueSidebarPropertyGrid>
           {/* Core props — always rendered. */}
           <PropRow label={t(($) => $.detail.prop_status)}>
             <StatusPicker
@@ -3508,7 +3550,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
             ))}
 
           {addPropertyRow}
-        </IssueSidebarPropertyGrid>}
+        </IssueSidebarPropertyGrid></IssueSidebarCollapsible>
       </div>
     ),
     quick_actions: <QuickActionsSection issueId={issue.id} />,
@@ -3528,7 +3570,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
         <div>
           <IssueSidebarSectionHeader title={t(($) => $.detail.section_parent_issue)} open={parentIssueOpen} onOpenChange={setParentIssueOpen}
             actions={<IconButton size="icon-xs" label={t(($) => $.actions.remove_parent_issue)} onClick={() => actions.removeParent()}><Unlink /></IconButton>} />
-          {parentIssueOpen && <div className="px-2">
+          <IssueSidebarCollapsible open={parentIssueOpen}><div className="px-2">
             <div className="flex items-center gap-0.5 rounded-md px-2 hover:bg-accent/50 transition-colors group">
               <AppLink
                 href={paths.issueDetail(issueRouteRef(parentIssue))}
@@ -3546,7 +3588,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
               </AppLink>
 
             </div>
-          </div>}
+          </div></IssueSidebarCollapsible>
         </div>
     ),
     sub_issues: childIssuesLoaded && childIssues.length > 0 && (
@@ -3570,7 +3612,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
             </span>
           }
         />
-        {sidebarSubIssuesOpen && (
+        <IssueSidebarCollapsible open={sidebarSubIssuesOpen}>
           <ul id={sidebarSubIssuesListId} className="px-2">
             {sidebarChildIssues.map((child) => (
               <li key={child.id}>
@@ -3612,7 +3654,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
               </li>
             )}
           </ul>
-        )}
+        </IssueSidebarCollapsible>
       </div>
     ),
     duplicates: <IssueDuplicatesSection issueId={issue.id} />,
@@ -3649,7 +3691,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
     details: (
       <div>
         <IssueSidebarSectionHeader title={t(($) => $.detail.section_details)} open={detailsOpen} onOpenChange={setDetailsOpen} />
-        {detailsOpen && <IssueSidebarPropertyGrid>
+        <IssueSidebarCollapsible open={detailsOpen}><IssueSidebarPropertyGrid>
           <PropRow
             interactive={false}
             label={t(($) => $.detail.prop_created_by)}
@@ -3682,7 +3724,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
           <PropRow interactive={false} label={t(($) => $.detail.prop_updated)}>
             <span className="text-muted-foreground">{shortDate(issue.updated_at, locale)}</span>
           </PropRow>
-        </IssueSidebarPropertyGrid>}
+        </IssueSidebarPropertyGrid></IssueSidebarCollapsible>
       </div>
     ),
     metadata: <MetadataSection metadata={issue.metadata ?? {}} />,
@@ -3731,19 +3773,19 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
     }
     if (item.kind === "resolved-bar") {
       return (
-        <div className="pb-3" id={`comment-${item.id}`}>
+        <ResolvedToggleReveal id={item.id} toggledRef={recentResolvedToggleRef} className="pb-3" domId={`comment-${item.id}`}>
           <ResolvedThreadBar
             entry={item.entry}
             replies={timelineView.threadReplies.get(item.id) ?? EMPTY_REPLIES}
             onExpand={() => toggleResolvedExpand(item.id, true)}
           />
-        </div>
+        </ResolvedToggleReveal>
       );
     }
     if (item.kind === "comment") {
       const isResolved = !!item.entry.resolved_at;
       return (
-        <div className="pb-3" id={`comment-${item.id}`}>
+        <ResolvedToggleReveal id={item.id} toggledRef={recentResolvedToggleRef} className="pb-3" domId={`comment-${item.id}`}>
           <CommentCard
             issueId={id}
             replyScrollParent={scrollContainerEl}
@@ -3767,7 +3809,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
             onResolvedExpandChange={toggleResolvedExpand}
             highlightedCommentId={highlightedId}
           />
-        </div>
+        </ResolvedToggleReveal>
       );
     }
     // activity-group
@@ -3804,23 +3846,26 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
   // different project than its parent), so we never render both: parent wins,
   // else project, else nothing. The project is still shown in the properties
   // panel. The workspace name is intentionally absent — "all issues" is a view,
-  // not a container.
-  const breadcrumbSegments: BreadcrumbSegment[] = parentIssue
-    ? [{ href: paths.issueDetail(issueRouteRef(parentIssue)), label: parentIssue.identifier }]
-    : breadcrumbProject
-      ? [
-          {
-            href: paths.projectDetail(breadcrumbProject.id),
-            className: "flex items-center gap-1 min-w-0 max-w-72",
-            label: (
-              <>
-                <ProjectIcon project={breadcrumbProject} size="sm" />
-                <span className="min-w-0 truncate">{breadcrumbProject.title}</span>
-              </>
-            ),
-          },
-        ]
-      : [];
+  // not a container. On the Inbox page the issue is read as a notification, so
+  // the trail leads back to the Inbox instead.
+  const breadcrumbSegments: BreadcrumbSegment[] = inbox
+    ? inbox.crumb ? [inbox.crumb] : []
+    : parentIssue
+      ? [{ href: paths.issueDetail(issueRouteRef(parentIssue)), label: parentIssue.identifier }]
+      : breadcrumbProject
+        ? [
+            {
+              href: paths.projectDetail(breadcrumbProject.id),
+              className: "flex items-center gap-1 min-w-0 max-w-72",
+              label: (
+                <>
+                  <ProjectIcon project={breadcrumbProject} size="sm" />
+                  <span className="min-w-0 truncate">{breadcrumbProject.title}</span>
+                </>
+              ),
+            },
+          ]
+        : [];
 
   const titleSizeClass = isPeek ? "text-title-lg font-semibold" : ISSUE_PAGE_TITLE_CLASS;
 
@@ -3854,12 +3899,15 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
             its close button (MUL-4414). On desktop it also steps inside the
             thread rail's right-edge strip, so an open find bar can't cover
             the topmost ticks. */}
-        {find.open && (
-          <FindBar
-            find={find}
-            className={cn("absolute top-14 z-30", isMobile ? "right-4" : "right-10")}
-          />
-        )}
+        <AnimatePresence initial={false}>
+          {find.open && (
+            <FindBar
+              key="find-bar"
+              find={find}
+              className={cn("absolute top-14 z-30", isMobile ? "right-4" : "right-10")}
+            />
+          )}
+        </AnimatePresence>
         <BreadcrumbHeader
           className="@container/issue-header"
           leading={leadingAction}
@@ -3897,6 +3945,17 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
                 )}
                 <IssueAgentHeaderChip issueId={id} onJumpToRun={jumpToRun} />
               </div>
+            )}
+            {inbox && (
+              <IconButton
+                label={t(($) => $.detail.open_issue_page)}
+                tooltipSide="bottom"
+                className="text-muted-foreground"
+                nativeButton={false}
+                render={<AppLink href={paths.issueDetail(issueRouteRef(issue))} />}
+              >
+                <ArrowUpRight />
+              </IconButton>
             )}
             {!guest && <IssueDetailActionsDropdown
               issue={issue}
@@ -3936,19 +3995,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
             </>
           }
         />
-        {notice?.(inboxIssueActions) ??
-          (onArchive ? (
-            inboxItem && (
-              <InboxOpenBar item={inboxItem} issueActions={inboxIssueActions}>
-                {onUnsubscribeArchive && (
-                  <UnsubscribeArchiveButton issueId={id} userId={user?.id} onConfirm={onUnsubscribeArchive} />
-                )}
-                <InboxArchiveButton onClick={onArchive} />
-              </InboxOpenBar>
-            )
-          ) : (
-            !isPeek && <IssueInboxBar issueId={id} issueActions={inboxIssueActions} />
-          ))}
+        {inbox?.bar(inboxIssueActions)}
 
         {/* scrollbar-gutter both-edges: with classic (space-taking) scrollbars —
             macOS with a mouse or "always show", Windows, Linux — the global
@@ -3977,12 +4024,11 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
               : cn(READING_COLUMN, "px-[var(--space-sm,0.75rem)] py-[var(--space-lg,1.5rem)] max-md:pb-chat-launcher md:px-[var(--space-xl,2rem)] md:py-[var(--space-xl,2rem)]"),
             hideUnalignedLanding && "opacity-0",
             !hideUnalignedLanding &&
+              !reduceMotion &&
               activeInboxTransition &&
-              (reduceMotion
-                ? "animate-inbox-enter-fade"
-                : activeInboxTransition === "next"
-                  ? "animate-inbox-enter-next"
-                  : "animate-inbox-enter-prev"),
+              (activeInboxTransition === "next"
+                ? "animate-inbox-enter-next"
+                : "animate-inbox-enter-prev"),
           )}
         >
           <IssueDuplicateBanner
@@ -4304,7 +4350,7 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
                   >
                     <ChevronDown
                       className={cn(
-                        "h-3.5 w-3.5 text-muted-foreground transition-transform",
+                        "h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
                         subIssuesCollapsed && "-rotate-90",
                       )}
                     />
@@ -4363,34 +4409,36 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
                 />
 
                 {/* List */}
-                {!subIssuesCollapsed && (() => {
-                  const groups = groupSubIssuesByStage(childIssues);
-                  const staged = childIssues.some((c) => c.stage != null);
-                  return (
-                    <div className="overflow-hidden rounded-lg border bg-card/30 divide-y divide-border/60">
-                      {groups.map(({ stage: groupStage, items }) => (
-                        <Fragment key={groupStage ?? "unstaged"}>
-                          {staged && (
-                            <div className="bg-muted/40 px-3 py-1 text-micro font-medium uppercase tracking-wider text-muted-foreground">
-                              {groupStage == null
-                                ? t(($) => $.stage.none)
-                                : t(($) => $.stage.value, { n: groupStage })}
-                            </div>
-                          )}
-                          {items.map((child) => (
-                            <SubIssueRow
-                              key={child.id}
-                              child={child}
-                              childProgress={subIssueProgress?.get(child.id)}
-                              rowProps={subIssueRowProps}
-                              customProperties={subIssueCustomProps}
-                            />
-                          ))}
-                        </Fragment>
-                      ))}
-                    </div>
-                  );
-                })()}
+                <IssueSidebarCollapsible open={!subIssuesCollapsed}>
+                  {(() => {
+                    const groups = groupSubIssuesByStage(childIssues);
+                    const staged = childIssues.some((c) => c.stage != null);
+                    return (
+                      <div className="overflow-hidden rounded-lg border bg-card/30 divide-y divide-border/60">
+                        {groups.map(({ stage: groupStage, items }) => (
+                          <Fragment key={groupStage ?? "unstaged"}>
+                            {staged && (
+                              <div className="bg-muted/40 px-3 py-1 text-micro font-medium uppercase tracking-wider text-muted-foreground">
+                                {groupStage == null
+                                  ? t(($) => $.stage.none)
+                                  : t(($) => $.stage.value, { n: groupStage })}
+                              </div>
+                            )}
+                            {items.map((child) => (
+                              <SubIssueRow
+                                key={child.id}
+                                child={child}
+                                childProgress={subIssueProgress?.get(child.id)}
+                                rowProps={subIssueRowProps}
+                                customProperties={subIssueCustomProps}
+                              />
+                            ))}
+                          </Fragment>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </IssueSidebarCollapsible>
               </div>
               </IssueSurfaceSelectionProvider>
               </IssueContextMenuProvider>
@@ -4575,7 +4623,6 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
                       ref={virtuosoRef}
                       customScrollParent={scrollContainerEl}
                       data={items}
-                      initialScrollTop={readingAnchor ? undefined : restoredScrollTop}
                       heightEstimates={timelineHeightEstimates}
                       increaseViewportBy={timelineOverscan}
                       totalListHeightChanged={handleTimelineHeightChange}
@@ -4614,10 +4661,18 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
               composer's top edge. With the sticky composer it rides the
               composer itself; without it, a zero-height sticky anchor pins
               it to the viewport bottom until the composer scrolls in. */}
-          {!stickyComposer && jumpToLatest.visible && (
-            <div className="sticky bottom-0 z-10 h-0">
-              <JumpToLatestButton onClick={onJumpToLatest} label={jumpToLatestLabel} hasNew={!!firstNewCommentId} />
-            </div>
+          {!stickyComposer && (
+            <AnimatePresence initial={false}>
+              {jumpToLatest.visible && (
+                <motion.div
+                  key="jump-to-latest-anchor"
+                  exit={{ opacity: 0, transition: { duration: UI_MOTION_DURATION.micro } }}
+                  className="sticky bottom-0 z-10 h-0"
+                >
+                  <JumpToLatestButton onClick={onJumpToLatest} label={jumpToLatestLabel} hasNew={!!firstNewCommentId} />
+                </motion.div>
+              )}
+            </AnimatePresence>
           )}
           <IssueAppRequests issueId={id} highlightId={highlightAppRequestId} highlightToken={highlightRequestToken} />
           <div
@@ -4634,9 +4689,11 @@ export function IssueDetail({ issueId, onDelete, onArchive, onUnsubscribeArchive
                 keeps the previous issue's in-memory content and the
                 next keystroke would flush it into the new issue's
                 draft key. */}
-            {stickyComposer && jumpToLatest.visible && (
-              <JumpToLatestButton onClick={onJumpToLatest} label={jumpToLatestLabel} hasNew={!!firstNewCommentId} />
-            )}
+            <AnimatePresence initial={false}>
+              {stickyComposer && jumpToLatest.visible && (
+                <JumpToLatestButton key="jump-to-latest" onClick={onJumpToLatest} label={jumpToLatestLabel} hasNew={!!firstNewCommentId} />
+              )}
+            </AnimatePresence>
             {!landingChromeHeld && (
               <CommentInput
                 key={id}
