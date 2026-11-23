@@ -159,9 +159,6 @@ type ExecOptions struct {
 	// runtime-skill overrides only; other providers ignore it.
 	ClaudeSettingsPath string
 
-	// ImageAttachments contains local file paths to image attachments that should
-	// be forwarded to backends supporting direct image inputs (e.g. Pi's @<path>).
-	ImageAttachments []string
 	// CursorHookCommand is the argv of the multica hook relay (the daemon's own
 	// binary followed by CursorHookHelperArg). The cursor backend needs it, with
 	// EnableTaskSupplement, to accept additional messages; other providers
