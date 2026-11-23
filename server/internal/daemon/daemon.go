@@ -9351,11 +9351,18 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		idleWatchdogTimeout = d.cfg.OpenCodeIdleWatchdog
 	}
 
+	attDir := filepath.Join(taskTempDir, "attachments")
+	if taskTempDir == "" {
+		attDir = filepath.Join(os.TempDir(), "multica-task-attachments-"+task.ID)
+	}
+	imageAttachments := d.downloadTaskImageAttachments(ctx, task, agentToken, attDir, taskLog, prompt)
+
 	execOpts := agent.ExecOptions{
 		SkillInvocation:            skillInvocation,
 		EnableTaskSupplement:       taskSupplementNegotiated,
 		CursorHookCommand:          cursorHookCommand,
 		Cwd:                        env.WorkDir,
+		ImageAttachments:           imageAttachments,
 		PiSkillPaths:               env.PiSkillPaths,
 		Model:                      model,
 		ThreadName:                 deriveTaskThreadName(task),
